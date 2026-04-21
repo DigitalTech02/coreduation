@@ -99,6 +99,11 @@ STRICT MANIM CODE RULES
 - Each manim_code = complete self-contained snippet with ONE Scene subclass
 - Class name MUST match scene_id in PascalCase (e.g. "intro" -> class Intro(Scene))
 - ONLY import: from manim import *
+- EVERY scene MUST set background color in construct():
+    self.camera.background_color = "#1a1a2e"
+  This is REQUIRED for smooth crossfade transitions between scenes.
+- End EVERY scene by fading out all objects:
+    self.play(*[FadeOut(mob) for mob in self.mobjects], run_time=0.5)
 
 ALLOWED Mobjects:
   Text, MathTex, Tex, VGroup, HGroup, Square, Circle, Rectangle,

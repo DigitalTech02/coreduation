@@ -73,11 +73,21 @@ def main() -> None:
         logger.error("No scenes rendered successfully. Aborting.")
         return
 
-    # Step 4: Stitch everything together
+    # Step 4: Stitch with title card + crossfade transitions
     from video_stitcher import stitch_video
 
-    logger.info("--- Step 4: Stitching final video ---")
-    final_path = stitch_video(renderable, output_path="output/final.mp4")
+    logger.info("--- Step 4: Stitching final video with transitions ---")
+    title_narration = (
+        f"Welcome to this deep dive into {topic}. "
+        f"In the next few minutes, we'll build a clear, visual understanding "
+        f"of how it works, why it matters, and how to implement it in code."
+    )
+    final_path = stitch_video(
+        renderable,
+        output_path="output/final.mp4",
+        title_topic=topic,
+        title_narration=title_narration,
+    )
 
     logger.info("=== Pipeline complete! Final video: %s ===", final_path)
 
