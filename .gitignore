@@ -16,6 +16,8 @@ env/
 
 # Output artifacts
 output/
+*.tmp.mp4
+*TEMP_MPY*
 
 # Manim media
 media/

@@ -124,6 +124,7 @@ def render_scene(
     scene_id: str,
     target_duration: float | None = None,
     max_heal_retries: int = 3,
+    output_dir: Path | str | None = None,
 ) -> str | None:
     """Render a Manim scene and return the path to the output video file.
 
@@ -131,7 +132,8 @@ def render_scene(
     If target_duration is provided, pads/trims the clip to match.
     Returns None if all attempts fail (pipeline can skip the scene).
     """
-    _ensure_output_dir()
+    dest_dir = Path(output_dir) if output_dir else OUTPUT_DIR
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
     class_name = _scene_id_to_class_name(scene_id)
     current_code = manim_code
@@ -145,7 +147,7 @@ def render_scene(
             logger.info("Scene '%s' rendered successfully: %s", scene_id, video_path)
 
             if target_duration is not None:
-                output_path = str(OUTPUT_DIR / f"{scene_id}.mp4")
+                output_path = str(dest_dir / f"{scene_id}.mp4")
                 video_path = _enforce_duration(video_path, target_duration, output_path)
                 logger.info("Scene '%s' duration enforced to %.2fs", scene_id, target_duration)
 

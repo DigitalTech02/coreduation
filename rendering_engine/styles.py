@@ -1,0 +1,164 @@
+"""Shared visual constants for the rendering engine.
+
+All renderers import from here so the entire video has a consistent look.
+"""
+
+from manim import (
+    BLUE,
+    BLUE_B,
+    BLUE_D,
+    DARK_BLUE,
+    GREEN,
+    GREEN_B,
+    GREY,
+    GREY_A,
+    GREY_B,
+    GREY_D,
+    ORANGE,
+    RED,
+    RED_B,
+    TEAL,
+    WHITE,
+    YELLOW,
+    YELLOW_B,
+    ManimColor,
+)
+
+# ---------------------------------------------------------------------------
+# Background
+# ---------------------------------------------------------------------------
+BG_COLOR = "#0f1117"
+
+# ---------------------------------------------------------------------------
+# Palette
+# ---------------------------------------------------------------------------
+PRIMARY = BLUE_B
+SECONDARY = TEAL
+ACCENT = YELLOW_B
+POSITIVE = GREEN_B
+NEGATIVE = RED_B
+MUTED = GREY_B
+HIGHLIGHT = YELLOW
+
+# Named-color lookup used when the LLM specifies a color string.
+COLOR_MAP: dict[str, ManimColor] = {
+    "blue": BLUE_B,
+    "green": GREEN_B,
+    "red": RED_B,
+    "yellow": YELLOW_B,
+    "orange": ORANGE,
+    "teal": TEAL,
+    "cyan": BLUE,
+    "grey": GREY_B,
+    "gray": GREY_B,
+    "white": WHITE,
+    "dark_blue": DARK_BLUE,
+    "": PRIMARY,
+}
+
+
+def resolve_color(name: str) -> ManimColor:
+    """Map an LLM-provided color name to a ManimColor."""
+    return COLOR_MAP.get(name.lower().strip(), PRIMARY)
+
+
+# ---------------------------------------------------------------------------
+# Typography
+# ---------------------------------------------------------------------------
+FONT_MONO = "Monospace"
+FONT_SANS = "Sans"
+
+TITLE_FONT_SIZE = 40
+SUBTITLE_FONT_SIZE = 32
+BODY_FONT_SIZE = 26
+SMALL_FONT_SIZE = 22
+CODE_FONT_SIZE = 22
+LABEL_FONT_SIZE = 20
+SUBLABEL_FONT_SIZE = 16
+
+# ---------------------------------------------------------------------------
+# Node dimensions & spacing
+# ---------------------------------------------------------------------------
+NODE_WIDTH = 2.0
+NODE_HEIGHT = 1.2
+NODE_CORNER_RADIUS = 0.15
+NODE_STROKE_WIDTH = 2.5
+NODE_BUFF = 0.6
+
+ICON_SCALE = 0.55
+
+# ---------------------------------------------------------------------------
+# Packet animation
+# ---------------------------------------------------------------------------
+PACKET_WIDTH = 1.2
+PACKET_HEIGHT = 0.45
+PACKET_SPEED_BASE = 2.0  # Manim units per second
+
+# ---------------------------------------------------------------------------
+# Connection
+# ---------------------------------------------------------------------------
+CONNECTION_STROKE_WIDTH = 2.5
+CONNECTION_TIP_SCALE = 0.2
+
+# ---------------------------------------------------------------------------
+# Layer stack / header
+# ---------------------------------------------------------------------------
+LAYER_HEIGHT = 0.7
+LAYER_WIDTH = 4.0
+HEADER_FIELD_HEIGHT = 0.6
+
+# ---------------------------------------------------------------------------
+# Table
+# ---------------------------------------------------------------------------
+TABLE_CELL_BUFF = 0.3
+TABLE_HEADER_COLOR = BLUE_D
+TABLE_ROW_ALT_COLOR = GREY_D
+TABLE_HIGHLIGHT_COLOR = YELLOW
+
+# ---------------------------------------------------------------------------
+# Cloud architecture
+# ---------------------------------------------------------------------------
+REGION_STROKE_WIDTH = 2.0
+REGION_CORNER_RADIUS = 0.25
+REGION_PADDING = 0.8
+
+# ---------------------------------------------------------------------------
+# Sequence diagram
+# ---------------------------------------------------------------------------
+SEQ_PARTICIPANT_GAP = 3.0
+SEQ_MESSAGE_GAP = 0.8
+SEQ_LIFELINE_COLOR = GREY_A
+
+# ---------------------------------------------------------------------------
+# Timing defaults (seconds)
+# ---------------------------------------------------------------------------
+FADE_DURATION = 0.5
+WRITE_DURATION = 0.8
+PACKET_TRAVEL_DURATION = 1.5
+SHORT_PAUSE = 0.3
+MEDIUM_PAUSE = 0.6
+LONG_PAUSE = 1.0
+
+# Full-video semantic pipeline (title + scene boundaries)
+TITLE_CARD_SECONDS = 2.5
+TITLE_FADE_IN = 0.45
+TITLE_FADE_OUT = 0.4
+SCENE_FADE_OUT_SECONDS = 0.45
+SCENE_GAP_SECONDS = 0.4
+
+# ---------------------------------------------------------------------------
+# Icon shapes — simple geometric representations for node types
+# These return (shape_constructor_name, default_color) pairs.
+# ---------------------------------------------------------------------------
+ICON_THEME: dict[str, tuple[str, ManimColor]] = {
+    "computer": ("rectangle", BLUE_B),
+    "server": ("rectangle", GREEN),
+    "router": ("circle", ORANGE),
+    "switch": ("diamond", TEAL),
+    "firewall": ("rectangle", RED),
+    "cloud": ("ellipse", GREY_A),
+    "phone": ("rectangle", BLUE),
+    "database": ("cylinder", GREEN_B),
+    "load_balancer": ("diamond", TEAL),
+    "generic": ("rectangle", GREY_B),
+}
