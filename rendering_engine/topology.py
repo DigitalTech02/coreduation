@@ -30,6 +30,8 @@ from rendering_engine.styles import (
     CONNECTION_STROKE_WIDTH,
     CONNECTION_TIP_SCALE,
     FADE_DURATION,
+    GLOW_OPACITY,
+    GLOW_SCALE,
     ICON_THEME,
     LABEL_FONT_SIZE,
     MUTED,
@@ -38,6 +40,8 @@ from rendering_engine.styles import (
     NODE_STROKE_WIDTH,
     NODE_WIDTH,
     SUBLABEL_FONT_SIZE,
+    apply_sheen,
+    darken_color,
     resolve_color,
 )
 
@@ -95,35 +99,47 @@ def _parse_position(pos: str) -> tuple[float, float, float]:
 def _build_node_shape(icon_type: str, color):
     shape_name, default_color = ICON_THEME.get(icon_type, ("rectangle", color))
     c = color or default_color
+    dark = darken_color(c, 0.35)
 
     if shape_name == "circle":
-        return Circle(radius=NODE_HEIGHT / 2, color=c, stroke_width=NODE_STROKE_WIDTH)
+        shape = Circle(radius=NODE_HEIGHT / 2, color=c, stroke_width=NODE_STROKE_WIDTH,
+                        fill_color=dark, fill_opacity=0.18)
+        return apply_sheen(shape)
     if shape_name == "ellipse":
-        return Ellipse(width=NODE_WIDTH, height=NODE_HEIGHT, color=c, stroke_width=NODE_STROKE_WIDTH)
+        shape = Ellipse(width=NODE_WIDTH, height=NODE_HEIGHT, color=c,
+                        stroke_width=NODE_STROKE_WIDTH, fill_color=dark, fill_opacity=0.18)
+        return apply_sheen(shape)
     if shape_name == "diamond":
         sq = RoundedRectangle(
             width=NODE_HEIGHT, height=NODE_HEIGHT,
             corner_radius=NODE_CORNER_RADIUS, color=c, stroke_width=NODE_STROKE_WIDTH,
+            fill_color=dark, fill_opacity=0.18,
         )
         sq.rotate(math.pi / 4)
         sq.set_width(NODE_WIDTH * 0.85)
         sq.set_height(NODE_HEIGHT)
-        return sq
+        return apply_sheen(sq)
     if shape_name == "cylinder":
         body = RoundedRectangle(
             width=NODE_WIDTH * 0.7, height=NODE_HEIGHT,
             corner_radius=0.05, color=c, stroke_width=NODE_STROKE_WIDTH,
+            fill_color=dark, fill_opacity=0.18,
         )
         top_ellipse = Ellipse(
             width=NODE_WIDTH * 0.7, height=0.35,
             color=c, stroke_width=NODE_STROKE_WIDTH,
+            fill_color=c, fill_opacity=0.25,
         ).move_to(body.get_top())
-        return VGroup(body, top_ellipse)
+        grp = VGroup(body, top_ellipse)
+        apply_sheen(body)
+        return grp
 
-    return RoundedRectangle(
+    shape = RoundedRectangle(
         width=NODE_WIDTH, height=NODE_HEIGHT,
         corner_radius=NODE_CORNER_RADIUS, color=c, stroke_width=NODE_STROKE_WIDTH,
+        fill_color=dark, fill_opacity=0.18,
     )
+    return apply_sheen(shape)
 
 
 # ---------------------------------------------------------------------------
@@ -205,17 +221,27 @@ def render_create_connection(scene: ManimScene, state: SceneState, action) -> No
 
 
 def render_update_node(scene: ManimScene, state: SceneState, action) -> None:
-    """Update a node's appearance."""
+    """Update a node's appearance with a glow highlight."""
     mob = state.get(action.id)
     if mob is None:
         return
 
     if action.highlight_color:
         color = resolve_color(action.highlight_color)
+
+        glow = mob[0].copy() if len(mob) > 0 else mob.copy()
+        glow.scale(GLOW_SCALE)
+        glow.move_to(mob.get_center())
+        glow.set_fill(color, opacity=GLOW_OPACITY)
+        glow.set_stroke(color, width=0)
+        scene.play(FadeIn(glow, run_time=0.25))
+
         scene.play(Indicate(mob, color=color), run_time=0.6)
         for sub in mob:
             if hasattr(sub, "set_color"):
                 sub.set_color(color)
+
+        mob.add_to_back(glow)
 
 
 def render_remove_element(scene: ManimScene, state: SceneState, action) -> None:

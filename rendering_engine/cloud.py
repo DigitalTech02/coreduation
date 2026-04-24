@@ -40,6 +40,8 @@ from rendering_engine.styles import (
     SECONDARY,
     SHORT_PAUSE,
     SUBLABEL_FONT_SIZE,
+    apply_sheen,
+    darken_color,
     resolve_color,
 )
 from rendering_engine.topology import _parse_position
@@ -85,9 +87,10 @@ def render_create_cloud_region(scene: ManimScene, state: SceneState, action) -> 
         corner_radius=REGION_CORNER_RADIUS,
         color=MUTED,
         stroke_width=REGION_STROKE_WIDTH,
-        fill_color=BG_COLOR,
-        fill_opacity=0.3,
+        fill_color=darken_color(MUTED, 0.5),
+        fill_opacity=0.1,
     ).move_to(pos)
+    apply_sheen(border, factor=0.2)
 
     label = Text(
         action.label, font_size=SUBLABEL_FONT_SIZE,
@@ -117,15 +120,17 @@ def render_create_cloud_service(scene: ManimScene, state: SceneState, action) ->
     """Place a cloud service node, optionally inside a region."""
     color_hex, _ = _SERVICE_THEME.get(action.service_type.value, ("#95a5a6", "rectangle"))
 
+    dark_hex = darken_color(color_hex, 0.35)
     box = RoundedRectangle(
         width=NODE_WIDTH * 0.9,
         height=NODE_HEIGHT * 0.9,
         corner_radius=NODE_CORNER_RADIUS,
         color=color_hex,
         stroke_width=NODE_STROKE_WIDTH,
-        fill_color=color_hex,
-        fill_opacity=0.15,
+        fill_color=dark_hex,
+        fill_opacity=0.2,
     )
+    apply_sheen(box, factor=0.3)
 
     svc_type_label = Text(
         action.service_type.value.replace("_", " ").title(),
@@ -167,6 +172,7 @@ def render_show_data_flow(scene: ManimScene, state: SceneState, action) -> None:
         fill_color=color, fill_opacity=0.85,
         stroke_width=1.5,
     )
+    apply_sheen(packet_box, factor=0.35)
     packet_label = Text(
         action.label or "request", font_size=SUBLABEL_FONT_SIZE,
         color="#0f1117",

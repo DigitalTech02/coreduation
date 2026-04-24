@@ -33,6 +33,9 @@ from rendering_engine.styles import (
     MUTED,
     PRIMARY,
     SECONDARY,
+    SHADOW_COLOR,
+    SHADOW_OFFSET,
+    SHADOW_OPACITY,
     SHORT_PAUSE,
     SMALL_FONT_SIZE,
     SUBTITLE_FONT_SIZE,
@@ -45,6 +48,16 @@ if TYPE_CHECKING:
     from manim import Scene as ManimScene
 
     from rendering_engine.engine import SceneState
+
+
+def _with_shadow(content: VGroup) -> VGroup:
+    """Wrap *content* in a VGroup with a drop shadow behind it."""
+    shadow = content.copy()
+    shadow.set_color(SHADOW_COLOR)
+    shadow.set_fill(SHADOW_COLOR, opacity=SHADOW_OPACITY)
+    shadow.set_stroke(width=0)
+    shadow.shift(SHADOW_OFFSET[0] * RIGHT + SHADOW_OFFSET[1] * UP)
+    return VGroup(shadow, content)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +83,8 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     if not parts:
         return
 
-    group = VGroup(*parts).arrange(DOWN, buff=0.4)
+    content = VGroup(*parts).arrange(DOWN, buff=0.4)
+    group = _with_shadow(content)
     state.register(f"text_{action.title or 'block'}", group)
     scene.play(FadeIn(group), run_time=FADE_DURATION)
 
@@ -96,7 +110,8 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     bullet_group = VGroup(*bullets).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
     parts.append(bullet_group)
 
-    group = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
+    content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
+    group = _with_shadow(content)
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if action.title:
@@ -135,7 +150,8 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
     code_with_bg = VGroup(bg, code_group)
     parts.append(code_with_bg)
 
-    group = VGroup(*parts).arrange(DOWN, buff=0.4)
+    content = VGroup(*parts).arrange(DOWN, buff=0.4)
+    group = _with_shadow(content)
     state.register(f"code_{action.title or 'block'}", group)
 
     scene.play(FadeIn(group), run_time=FADE_DURATION)
@@ -185,7 +201,8 @@ def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None
     comparison = VGroup(columns, divider)
     parts.append(comparison)
 
-    group = VGroup(*parts).arrange(DOWN, buff=0.5)
+    content = VGroup(*parts).arrange(DOWN, buff=0.5)
+    group = _with_shadow(content)
     state.register(f"comparison_{action.title or 'cmp'}", group)
 
     scene.play(FadeIn(group), run_time=FADE_DURATION)

@@ -14,6 +14,7 @@ from manim import DOWN, UP, FadeIn, FadeOut, Text, VGroup
 
 from rendering_engine.engine import SceneState, _dispatch_action, _rebuild_action
 from rendering_engine.styles import (
+    GLOW_OPACITY,
     MUTED,
     PRIMARY,
     SCENE_FADE_OUT_SECONDS,
@@ -74,7 +75,8 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
     topic = data.get("topic", "")
     scenes: list[dict] = data.get("scenes", [])
 
-    _play_title_card(scene, topic)
+    subtitle = data.get("title_card_subtitle", "")
+    _play_title_card(scene, topic, subtitle)
 
     future_refs = _collect_future_refs(scenes)
     state = SceneState()
@@ -166,7 +168,7 @@ def _clear_scene(scene: Any, state: SceneState, keep_ids: set[str]) -> None:
 # Title card
 # ---------------------------------------------------------------------------
 
-def _play_title_card(scene: Any, topic: str) -> None:
+def _play_title_card(scene: Any, topic: str, subtitle_text: str = "") -> None:
     title = Text(
         topic[:120] if topic else "Untitled",
         font_size=TITLE_FONT_SIZE,
@@ -175,11 +177,18 @@ def _play_title_card(scene: Any, topic: str) -> None:
     if title.width > 12:
         title.set_width(12)
     subtitle = Text(
-        "Networking & cloud concepts",
+        subtitle_text or "Educational Concepts",
         font_size=SUBTITLE_FONT_SIZE,
         color=MUTED,
     )
     card = VGroup(title, subtitle).arrange(DOWN, buff=0.35)
+
+    glow = title.copy()
+    glow.scale(1.15)
+    glow.move_to(title.get_center())
+    glow.set_fill(PRIMARY, opacity=GLOW_OPACITY)
+    glow.set_stroke(width=0)
+    card.add_to_back(glow)
 
     hold = max(0.1, TITLE_CARD_SECONDS - TITLE_FADE_IN - TITLE_FADE_OUT)
     scene.play(FadeIn(card, shift=DOWN * 0.2), run_time=TITLE_FADE_IN)

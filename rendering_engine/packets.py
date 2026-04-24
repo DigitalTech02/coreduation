@@ -25,6 +25,7 @@ from rendering_engine.styles import (
     PACKET_WIDTH,
     SHORT_PAUSE,
     SUBLABEL_FONT_SIZE,
+    apply_sheen,
     resolve_color,
 )
 
@@ -59,6 +60,7 @@ def _build_packet(label: str, color) -> VGroup:
         fill_opacity=0.85,
         stroke_width=1.5,
     )
+    apply_sheen(box, factor=0.35)
     txt = Text(label, font_size=SUBLABEL_FONT_SIZE, color="#0f1117")
     txt.move_to(box.get_center())
     return VGroup(box, txt)

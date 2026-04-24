@@ -455,6 +455,8 @@ class EnrichedVideoScript(BaseModel):
 
     topic: str
     scenes: list[EnrichedScene]
+    category: str = ""
+    title_card_subtitle: str = ""
 
     @classmethod
     def from_llm_output(cls, llm_script: SemanticVideoScript) -> EnrichedVideoScript:

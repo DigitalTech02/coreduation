@@ -34,6 +34,9 @@ from rendering_engine.styles import (
     MUTED,
     PRIMARY,
     SECONDARY,
+    SHADOW_COLOR,
+    SHADOW_OFFSET,
+    SHADOW_OPACITY,
     SHORT_PAUSE,
     SMALL_FONT_SIZE,
     SUBLABEL_FONT_SIZE,
@@ -43,6 +46,8 @@ from rendering_engine.styles import (
     TABLE_HIGHLIGHT_COLOR,
     TABLE_ROW_ALT_COLOR,
     TITLE_FONT_SIZE,
+    apply_sheen,
+    darken_color,
     resolve_color,
 )
 
@@ -83,12 +88,14 @@ def render_show_layer_stack(scene: ManimScene, state: SceneState, action) -> Non
 
     layer_mobs = []
     for i, (name, color_hex) in enumerate(layers_data):
+        dark_hex = darken_color(color_hex, 0.3)
         rect = RoundedRectangle(
             width=LAYER_WIDTH, height=LAYER_HEIGHT,
             corner_radius=0.08, color=color_hex,
-            fill_color=color_hex, fill_opacity=0.2,
+            fill_color=dark_hex, fill_opacity=0.25,
             stroke_width=2,
         )
+        apply_sheen(rect, factor=0.25)
         label = Text(name, font_size=LABEL_FONT_SIZE, color=color_hex)
         label.move_to(rect.get_center())
         layer_mobs.append(VGroup(rect, label))
@@ -125,8 +132,9 @@ def render_show_header_breakdown(scene: ManimScene, state: SceneState, action) -
         rect = Rectangle(
             width=width, height=HEADER_FIELD_HEIGHT,
             color=SECONDARY, stroke_width=2,
-            fill_color=SECONDARY, fill_opacity=0.1,
+            fill_color=SECONDARY, fill_opacity=0.12,
         )
+        apply_sheen(rect, factor=0.3)
         name_text = Text(field.name, font_size=SUBLABEL_FONT_SIZE, color=SECONDARY)
         name_text.move_to(rect.get_center())
 
@@ -181,12 +189,16 @@ def render_show_table(scene: ManimScene, state: SceneState, action) -> None:
             color = TABLE_HEADER_COLOR if is_header else MUTED
             font_size = LABEL_FONT_SIZE if is_header else SMALL_FONT_SIZE
             txt = Text(str(cell_text), font_size=font_size, color=color)
+            fill_c = TABLE_HEADER_COLOR if is_header else BG_COLOR
+            fill_o = 0.2 if is_header else 0.0
             cell_bg = Rectangle(
                 width=col_width, height=0.5,
                 stroke_width=0.5, color=MUTED,
-                fill_color=TABLE_HEADER_COLOR if is_header else BG_COLOR,
-                fill_opacity=0.15 if is_header else 0.0,
+                fill_color=fill_c,
+                fill_opacity=fill_o,
             )
+            if is_header:
+                apply_sheen(cell_bg, factor=0.25)
             txt.move_to(cell_bg.get_center())
             if txt.width > col_width - 0.2:
                 txt.set_width(col_width - 0.2)
@@ -203,7 +215,15 @@ def render_show_table(scene: ManimScene, state: SceneState, action) -> None:
     table = VGroup(*rows).arrange(DOWN, buff=0)
     parts.append(table)
 
-    group = VGroup(*parts).arrange(DOWN, buff=0.4)
+    content = VGroup(*parts).arrange(DOWN, buff=0.4)
+
+    shadow = content.copy()
+    shadow.set_color(SHADOW_COLOR)
+    shadow.set_fill(SHADOW_COLOR, opacity=SHADOW_OPACITY)
+    shadow.set_stroke(width=0)
+    shadow.shift(SHADOW_OFFSET[0] * RIGHT + SHADOW_OFFSET[1] * UP)
+    group = VGroup(shadow, content)
+
     state.register(f"table_{action.title or 'tbl'}", group)
 
     scene.play(FadeIn(group), run_time=FADE_DURATION)

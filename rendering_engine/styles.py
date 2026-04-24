@@ -3,6 +3,8 @@
 All renderers import from here so the entire video has a consistent look.
 """
 
+from __future__ import annotations
+
 from manim import (
     BLUE,
     BLUE_B,
@@ -17,11 +19,14 @@ from manim import (
     ORANGE,
     RED,
     RED_B,
+    RIGHT,
     TEAL,
     WHITE,
     YELLOW,
     YELLOW_B,
     ManimColor,
+    RoundedRectangle,
+    VGroup,
 )
 
 # ---------------------------------------------------------------------------
@@ -162,3 +167,91 @@ ICON_THEME: dict[str, tuple[str, ManimColor]] = {
     "load_balancer": ("diamond", TEAL),
     "generic": ("rectangle", GREY_B),
 }
+
+
+# ---------------------------------------------------------------------------
+# Visual effect constants
+# ---------------------------------------------------------------------------
+
+SHADOW_COLOR = "#000000"
+SHADOW_OPACITY = 0.12
+SHADOW_OFFSET = (0.07, -0.07)
+
+GLOW_SCALE = 1.35
+GLOW_OPACITY = 0.14
+
+SHEEN_FACTOR = 0.3
+SHEEN_DIRECTION = RIGHT
+
+
+# ---------------------------------------------------------------------------
+# Visual effect helpers
+# ---------------------------------------------------------------------------
+
+def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
+    h = hex_str.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{max(0,min(255,r)):02x}{max(0,min(255,g)):02x}{max(0,min(255,b)):02x}"
+
+
+def darken_color(color, factor: float = 0.35) -> str:
+    """Return a darker hex shade of *color* (ManimColor or hex string)."""
+    hex_str = str(color) if isinstance(color, str) else color.hex
+    if not hex_str.startswith("#"):
+        hex_str = f"#{hex_str}"
+    r, g, b = _hex_to_rgb(hex_str)
+    return _rgb_to_hex(int(r * (1 - factor)), int(g * (1 - factor)), int(b * (1 - factor)))
+
+
+def lighten_color(color, factor: float = 0.3) -> str:
+    """Return a lighter hex shade of *color*."""
+    hex_str = str(color) if isinstance(color, str) else color.hex
+    if not hex_str.startswith("#"):
+        hex_str = f"#{hex_str}"
+    r, g, b = _hex_to_rgb(hex_str)
+    return _rgb_to_hex(
+        int(r + (255 - r) * factor),
+        int(g + (255 - g) * factor),
+        int(b + (255 - b) * factor),
+    )
+
+
+def make_shadow(mobject, opacity: float = SHADOW_OPACITY) -> VGroup:
+    """Create a dark, offset copy behind *mobject* to simulate a drop shadow.
+
+    Returns a VGroup(shadow, original) so the shadow renders behind.
+    """
+    shadow = mobject.copy()
+    shadow.set_color(SHADOW_COLOR)
+    shadow.set_fill(SHADOW_COLOR, opacity=opacity)
+    shadow.set_stroke(width=0)
+    shadow.shift(SHADOW_OFFSET[0] * RIGHT + SHADOW_OFFSET[1] * RIGHT.rotate(90))
+    return VGroup(shadow, mobject)
+
+
+def make_glow(mobject, color=None, scale: float = GLOW_SCALE, opacity: float = GLOW_OPACITY):
+    """Create a larger, semi-transparent copy behind *mobject* as a glow halo.
+
+    Returns a VGroup(glow, original).
+    """
+    glow = mobject.copy()
+    glow.scale(scale)
+    glow.move_to(mobject.get_center())
+    if color:
+        glow.set_color(color)
+    glow.set_fill(opacity=opacity)
+    glow.set_stroke(width=0)
+    return VGroup(glow, mobject)
+
+
+def apply_sheen(mobject, factor: float = SHEEN_FACTOR, direction=None):
+    """Apply a directional sheen to a VMobject for a glossy look."""
+    d = direction if direction is not None else SHEEN_DIRECTION
+    try:
+        mobject.set_sheen(factor, d)
+    except Exception:
+        pass
+    return mobject

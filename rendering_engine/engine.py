@@ -220,6 +220,7 @@ def _rebuild_action(action_dict: dict):
 def _serialize_script(script: EnrichedVideoScript) -> dict:
     return {
         "topic": script.topic,
+        "title_card_subtitle": script.title_card_subtitle or "",
         "scenes": [
             {
                 "scene_id": s.scene_id,

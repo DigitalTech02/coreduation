@@ -105,7 +105,7 @@ def run_legacy_pipeline(topic: str) -> None:
 # Semantic pipeline
 # ---------------------------------------------------------------------------
 
-def run_semantic_pipeline(topic: str) -> None:
+def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     """Semantic pipeline: repair ids -> validate -> TTS -> combine audio -> render -> mux."""
     from llm_orchestrator_semantic import generate_semantic_script
     from semantic_audio import build_semantic_narration_track, mux_video_with_audio
@@ -119,9 +119,12 @@ def run_semantic_pipeline(topic: str) -> None:
     video_dir = run_dir / "video"
     logger.info("Run directory: %s", run_dir)
 
-    logger.info("--- Step 1: Generating script (semantic) ---")
-    script = generate_semantic_script(topic)
-    logger.info("Script generated with %d scenes", len(script.scenes))
+    logger.info("--- Step 1: Generating script (semantic, category=%s) ---", category)
+    script = generate_semantic_script(topic, category=category)
+    logger.info(
+        "Script generated with %d scenes (category: %s, subtitle: %s)",
+        len(script.scenes), script.category, script.title_card_subtitle,
+    )
 
     logger.info("--- Step 1b: Repairing duplicate definition ids ---")
     script = repair_duplicate_ids(script)
@@ -178,15 +181,25 @@ def main() -> None:
         default="semantic",
         help="legacy: raw Manim code; semantic: action vocabulary + full render",
     )
+    parser.add_argument(
+        "--category",
+        type=str,
+        default="auto",
+        help=(
+            "Specialty prompt category. Options: networking, data-structures, "
+            "programming, cloud-architecture, system-design, business-analysis, "
+            "databases, security, auto (LLM auto-detects)"
+        ),
+    )
     args = parser.parse_args()
 
     logger.info("=== Starting video generation pipeline ===")
-    logger.info("Topic: %s | Engine: %s", args.topic, args.engine)
+    logger.info("Topic: %s | Engine: %s | Category: %s", args.topic, args.engine, args.category)
 
     if args.engine == "legacy":
         run_legacy_pipeline(args.topic)
     else:
-        run_semantic_pipeline(args.topic)
+        run_semantic_pipeline(args.topic, category=args.category)
 
 
 if __name__ == "__main__":
