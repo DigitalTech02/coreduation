@@ -1,0 +1,385 @@
+{
+  "topic": "Binary Search",
+  "video_title": "Binary Search — The Algorithm That Finds Anything in 24 Steps",
+  "video_hook": "If you had to find one user in a database of 10 million, checking one by one would take 10 million steps. But there's a trick that does it in just 24.",
+  "open_loop_question": "Why does cutting the search space in half feel almost unfairly powerful?",
+  "open_loop_resolution_scene_id": "summary-resolution",
+  "retention_beats": [
+    "Here is the part most people miss.",
+    "Now watch what changes.",
+    "This is where the speedup happens.",
+    "Here is the hidden trick."
+  ],
+  "target_audience": "CS students and junior developers",
+  "emotional_tone": "curious and energetic",
+  "suggested_thumbnail_text": "24 STEPS to find ANYTHING",
+  "suggested_youtube_title": "Binary Search Explained — Find Anything in a Billion Records (Visual Guide)",
+  "scenes": [
+    {
+      "scene_id": "hook",
+      "title": "The Problem",
+      "type": "concept",
+      "narration": "Imagine you have a sorted list of 10 million users. You need to find one specific name. Checking each one, one by one, could take 10 million steps. But there's a trick that finds the answer in about 24 steps. How? That's what we'll figure out.",
+      "visual_description": "Large number emphasis, then curiosity text.",
+      "actions": [
+        {
+          "type": "emphasize_text",
+          "text": "10,000,000 steps?",
+          "emphasis_type": "pop",
+          "duration": 1.2
+        },
+        {
+          "type": "show_text_block",
+          "title": "The Challenge",
+          "body": "Find one name in a sorted list of 10 million entries.\nBrute force: check every single one.\nCan we do better?"
+        }
+      ],
+      "estimated_duration": 22
+    },
+    {
+      "scene_id": "linear-search-fail",
+      "title": "The Naive Approach: Linear Search",
+      "type": "visualization",
+      "narration": "Let's try the obvious way first. Start at the beginning and check each element. The target is 72. We check 3, then 8, then 15, then 22... we're not even close. This is linear search — it works, but it's painfully slow.",
+      "visual_description": "Table with array, highlight moves row by row, shake on slow realization.",
+      "actions": [
+        {
+          "type": "show_progress",
+          "label": "Linear Search",
+          "current_step": 1,
+          "total_steps": 5
+        },
+        {
+          "type": "show_table",
+          "title": "Linear Search: Check Every Element",
+          "headers": ["Index", "Value", "Status"],
+          "rows": [
+            {"cells": ["0", "3", "✗ Not it"], "highlight": true},
+            {"cells": ["1", "8", "✗ Not it"], "highlight": false},
+            {"cells": ["2", "15", "✗ Not it"], "highlight": false},
+            {"cells": ["3", "22", "✗ Not it"], "highlight": false},
+            {"cells": ["4", "34", "..."], "highlight": false},
+            {"cells": ["5", "42", "..."], "highlight": false},
+            {"cells": ["6", "55", "..."], "highlight": false},
+            {"cells": ["7", "67", "..."], "highlight": false},
+            {"cells": ["8", "72", "Target!"], "highlight": false}
+          ],
+          "highlight_row": 0
+        }
+      ],
+      "estimated_duration": 20
+    },
+    {
+      "scene_id": "linear-search-shake",
+      "title": "Linear Search Is Slow",
+      "type": "concept",
+      "narration": "Here is the part most people miss. With 10 million elements, linear search averages 5 million comparisons. That's O of n. Can we do dramatically better?",
+      "visual_description": "Shake the table to show frustration, then show O(n) math.",
+      "actions": [
+        {
+          "type": "show_math",
+          "expression": "O(n) = O(10{,}000{,}000)",
+          "label": "Linear Search Complexity"
+        },
+        {
+          "type": "emphasize_text",
+          "text": "Too slow!",
+          "emphasis_type": "pop",
+          "duration": 0.8
+        }
+      ],
+      "estimated_duration": 16
+    },
+    {
+      "scene_id": "introduce-binary-search",
+      "title": "The Key Insight: Divide and Conquer",
+      "type": "concept",
+      "narration": "What if the list is sorted? Then we can do something clever. Instead of starting from the beginning, start in the middle. If the middle value is too big, throw away the entire right half. If it's too small, throw away the left half. Each step cuts the problem in half.",
+      "visual_description": "Emphasize the key insight, then bullet list of the idea.",
+      "actions": [
+        {
+          "type": "scene_transition",
+          "transition_type": "wipe",
+          "label": "The Better Way",
+          "duration": 0.8
+        },
+        {
+          "type": "emphasize_text",
+          "text": "Cut in half. Every. Single. Time.",
+          "emphasis_type": "pop",
+          "duration": 1.2
+        },
+        {
+          "type": "show_bullet_list",
+          "title": "Binary Search — Core Idea",
+          "items": [
+            "Start in the middle of the sorted array",
+            "Compare with the target value",
+            "Too big? Discard the right half",
+            "Too small? Discard the left half",
+            "Repeat until found"
+          ],
+          "progressive": true
+        }
+      ],
+      "estimated_duration": 24
+    },
+    {
+      "scene_id": "binary-search-step1",
+      "title": "Step 1: Find the Middle",
+      "type": "visualization",
+      "narration": "Now watch what changes. Our sorted array has 9 elements. The middle index is 4, and the value there is 34. Our target is 72. Since 72 is greater than 34, we know the answer must be in the right half. We throw away indexes 0 through 4.",
+      "visual_description": "Full table, middle highlighted, dim left half.",
+      "actions": [
+        {
+          "type": "show_progress",
+          "label": "Find the middle",
+          "current_step": 1,
+          "total_steps": 4
+        },
+        {
+          "type": "show_table",
+          "title": "Step 1: Check the Middle",
+          "headers": ["Index", "Value"],
+          "rows": [
+            {"cells": ["0", "3"], "highlight": false},
+            {"cells": ["1", "8"], "highlight": false},
+            {"cells": ["2", "15"], "highlight": false},
+            {"cells": ["3", "22"], "highlight": false},
+            {"cells": ["4", "34"], "highlight": true},
+            {"cells": ["5", "42"], "highlight": false},
+            {"cells": ["6", "55"], "highlight": false},
+            {"cells": ["7", "67"], "highlight": false},
+            {"cells": ["8", "72"], "highlight": false}
+          ],
+          "highlight_row": 4
+        }
+      ],
+      "estimated_duration": 22
+    },
+    {
+      "scene_id": "binary-search-step2",
+      "title": "Step 2: Narrow the Range",
+      "type": "visualization",
+      "narration": "This is where the speedup happens. Our range is now indexes 5 to 8. The new middle is index 6, value 55. Since 72 is greater than 55, we discard the left side again. Half the data — gone in one comparison.",
+      "visual_description": "Narrowed table, step 2 highlighted.",
+      "actions": [
+        {
+          "type": "update_progress",
+          "label": "Compare middle",
+          "current_step": 2,
+          "total_steps": 4
+        },
+        {
+          "type": "show_table",
+          "title": "Step 2: Narrowed Range",
+          "headers": ["Index", "Value"],
+          "rows": [
+            {"cells": ["5", "42"], "highlight": false},
+            {"cells": ["6", "55"], "highlight": true},
+            {"cells": ["7", "67"], "highlight": false},
+            {"cells": ["8", "72"], "highlight": false}
+          ],
+          "highlight_row": 1
+        },
+        {
+          "type": "emphasize_text",
+          "text": "Half gone!",
+          "emphasis_type": "pop",
+          "duration": 0.8
+        }
+      ],
+      "estimated_duration": 20
+    },
+    {
+      "scene_id": "binary-search-step3",
+      "title": "Step 3: Almost There",
+      "type": "visualization",
+      "narration": "Now we only have indexes 7 and 8 left. The middle is index 7, value 67. Still less than 72, so we move right one more time.",
+      "visual_description": "Two-element range, step 3.",
+      "actions": [
+        {
+          "type": "update_progress",
+          "label": "Narrow range",
+          "current_step": 3,
+          "total_steps": 4
+        },
+        {
+          "type": "show_table",
+          "title": "Step 3: Two Elements Left",
+          "headers": ["Index", "Value"],
+          "rows": [
+            {"cells": ["7", "67"], "highlight": true},
+            {"cells": ["8", "72"], "highlight": false}
+          ],
+          "highlight_row": 0
+        }
+      ],
+      "estimated_duration": 14
+    },
+    {
+      "scene_id": "binary-search-found",
+      "title": "Step 4: Found!",
+      "type": "visualization",
+      "narration": "Here is the hidden trick paying off. Index 8, value 72. That's our target! Found in just 4 steps instead of 9. And with 10 million elements? Only 24 steps.",
+      "visual_description": "Final step, target found, big emphasis.",
+      "actions": [
+        {
+          "type": "update_progress",
+          "label": "Found!",
+          "current_step": 4,
+          "total_steps": 4
+        },
+        {
+          "type": "show_table",
+          "title": "Found!",
+          "headers": ["Index", "Value"],
+          "rows": [
+            {"cells": ["8", "72"], "highlight": true}
+          ],
+          "highlight_row": 0
+        },
+        {
+          "type": "emphasize_text",
+          "text": "Found in 4 steps!",
+          "emphasis_type": "pop",
+          "duration": 1.0
+        }
+      ],
+      "estimated_duration": 18
+    },
+    {
+      "scene_id": "edge-case-not-found",
+      "title": "Edge Case: Target Not Found",
+      "type": "visualization",
+      "narration": "But what if the target isn't in the array? Say we search for 50. We'd narrow down to an empty range. Binary search handles this gracefully — when the low pointer passes the high pointer, we know the element doesn't exist.",
+      "visual_description": "Search for missing element, show empty range.",
+      "actions": [
+        {
+          "type": "show_table",
+          "title": "Searching for 50 (Not in Array)",
+          "headers": ["Index", "Value", "Status"],
+          "rows": [
+            {"cells": ["5", "42", "< 50, go right"], "highlight": false},
+            {"cells": ["6", "55", "> 50, go left"], "highlight": true},
+            {"cells": ["—", "—", "Empty range!"], "highlight": false}
+          ],
+          "highlight_row": 2
+        },
+        {
+          "type": "emphasize_text",
+          "text": "Not found — but fast!",
+          "emphasis_type": "pop",
+          "duration": 0.8
+        }
+      ],
+      "estimated_duration": 18
+    },
+    {
+      "scene_id": "pseudocode",
+      "title": "The Code",
+      "type": "code",
+      "narration": "Here's the pseudocode. We maintain two pointers, low and high. Each iteration, we compute the middle, compare, and adjust. The loop runs at most log-base-2 of n times. Simple, elegant, and devastatingly efficient.",
+      "visual_description": "Pseudocode block with highlighted lines.",
+      "actions": [
+        {
+          "type": "show_code_block",
+          "title": "Binary Search — Pseudocode",
+          "language": "python",
+          "lines": [
+            "def binary_search(arr, target):",
+            "    low, high = 0, len(arr) - 1",
+            "    while low <= high:",
+            "        mid = (low + high) // 2",
+            "        if arr[mid] == target:",
+            "            return mid",
+            "        elif arr[mid] < target:",
+            "            low = mid + 1",
+            "        else:",
+            "            high = mid - 1",
+            "    return -1"
+          ],
+          "highlight_lines": [3, 4, 5, 7, 9]
+        }
+      ],
+      "estimated_duration": 22
+    },
+    {
+      "scene_id": "complexity",
+      "title": "Why O(log n) Is Powerful",
+      "type": "concept",
+      "narration": "This is where the speedup happens. The complexity is O of log n. For 10 million elements, log base 2 of 10 million is about 23.25. So at most 24 comparisons. Compare that to 10 million for linear search.",
+      "visual_description": "Math expression and comparison table.",
+      "actions": [
+        {
+          "type": "show_math",
+          "expression": "O(\\log_2 n) \\approx O(23.25) \\text{ for } n = 10{,}000{,}000",
+          "label": "Binary Search Complexity"
+        },
+        {
+          "type": "show_comparison",
+          "title": "Linear vs Binary Search",
+          "left": {
+            "title": "Linear Search",
+            "items": ["O(n)", "10,000,000 steps", "Checks every element", "No sorting required"]
+          },
+          "right": {
+            "title": "Binary Search",
+            "items": ["O(log n)", "~24 steps", "Halves the range each time", "Requires sorted data"]
+          }
+        }
+      ],
+      "estimated_duration": 22
+    },
+    {
+      "scene_id": "real-world",
+      "title": "Where It's Used",
+      "type": "concept",
+      "narration": "This is why real systems care about this. Binary search powers database indexes, autocomplete suggestions, spelling checkers, git bisect for finding bugs, and even the way your browser finds cookies. It's everywhere.",
+      "visual_description": "Bullet list of real-world uses.",
+      "actions": [
+        {
+          "type": "show_bullet_list",
+          "title": "Binary Search in the Real World",
+          "items": [
+            "Database indexes (B-trees use the same principle)",
+            "Autocomplete and search suggestions",
+            "Git bisect — find the commit that broke your code",
+            "Dictionary and phonebook lookups",
+            "Binary search on the answer (competitive programming)"
+          ],
+          "progressive": true
+        }
+      ],
+      "estimated_duration": 20
+    },
+    {
+      "scene_id": "summary-resolution",
+      "title": "The Answer",
+      "type": "concept",
+      "narration": "So why does cutting in half feel unfairly powerful? Because each step doesn't remove one element — it removes HALF of everything that's left. After 24 halving steps, 10 million becomes 1. That's the magic of logarithms. And that's binary search.",
+      "visual_description": "Final emphasis and summary.",
+      "actions": [
+        {
+          "type": "emphasize_text",
+          "text": "10,000,000 → 1 in 24 steps",
+          "emphasis_type": "pop",
+          "duration": 1.5
+        },
+        {
+          "type": "show_bullet_list",
+          "title": "Key Takeaways",
+          "items": [
+            "Binary search requires sorted data",
+            "Each step eliminates half the remaining elements",
+            "Time complexity: O(log n)",
+            "10 million elements → ~24 comparisons",
+            "One of the most important algorithms in CS"
+          ],
+          "progressive": true
+        }
+      ],
+      "estimated_duration": 24
+    }
+  ]
+}

@@ -38,16 +38,22 @@ VIDEO STRUCTURE (10-16 scenes)
    - show_table for query results, execution steps
    - show_sequence_diagram for multi-table JOINs or transaction flows
 
-5. UNDER THE HOOD (1-2 scenes)
+5. PRACTICAL CODE / DDL (1-2 scenes)  ← REQUIRED
+   - ALWAYS include at least one scene with show_code_block showing the
+     practical SQL a viewer would actually type (CREATE INDEX, ALTER TABLE,
+     CREATE TABLE with constraints, etc.)
+   - This is the "do this at work" scene — viewers expect copy-paste-ready SQL
+
+6. UNDER THE HOOD (1-2 scenes)
    - B-tree / hash index visualization using create_topology (tree layout)
    - Storage engine concepts with show_bullet_list
    - show_math for complexity: O(\\log n) lookups, O(n) full scans
 
-6. COMPARISON & TRADE-OFFS (1-2 scenes)
+7. COMPARISON & TRADE-OFFS (1-2 scenes)
    - show_comparison: SQL vs NoSQL, B-tree vs hash index, row vs columnar
    - show_table: performance benchmarks
 
-7. SUMMARY (1 scene)
+8. SUMMARY (1 scene)
    - Key takeaways as show_bullet_list""",
 
     narration_style="""\
@@ -71,7 +77,9 @@ PRIMARY TOOLS (use heavily):
 - show_table — THE core visual. Display schemas, sample data, query results,
   normalization stages, comparison grids. Use headers for column names,
   rows for records, highlight_row for the current focus row.
-- show_code_block — SQL queries, DDL statements, configuration.
+- show_code_block — SQL queries AND practical DDL statements (CREATE INDEX,
+  CREATE TABLE, ALTER TABLE, EXPLAIN). EVERY database video MUST include at
+  least one show_code_block with copy-paste-ready DDL the viewer can use.
   Use highlight_lines to walk through complex queries clause by clause.
 - show_comparison — SQL vs NoSQL, clustered vs non-clustered, ACID vs BASE
 - show_math — index lookup complexity, storage calculations
@@ -86,6 +94,15 @@ SECONDARY TOOLS:
 - show_sequence_diagram — transaction lifecycle, distributed commit protocols
 - show_bullet_list — ACID properties, normal forms, best practices
 - show_text_block — definitions, theorems (CAP theorem, etc.)
+
+RETENTION TOOLS (use throughout):
+- shake_element — show full table scan, deadlock, constraint violation
+- pulse_element — highlight the row or index being accessed
+- focus_camera — zoom into the active part of a B-tree or table
+- dim_except — spotlight the indexed column vs the rest
+- add_callout — annotate IO cost, row counts, lock types
+- emphasize_text — "Full Table Scan!", "Index Hit!", "O(log n)"
+- show_progress / update_progress — track query execution steps
 
 AVOID:
 - Don't use show_layer_stack, show_header_breakdown — networking only

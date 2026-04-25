@@ -106,13 +106,14 @@ def run_legacy_pipeline(topic: str) -> None:
 # ---------------------------------------------------------------------------
 
 def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
-    """Semantic pipeline: repair ids -> validate -> TTS -> combine audio -> render -> mux."""
+    """Semantic pipeline: repair ids -> validate -> retention -> TTS -> audio -> render -> mux."""
     from llm_orchestrator_semantic import generate_semantic_script
     from semantic_audio import build_semantic_narration_track, mux_video_with_audio
     from semantic_repair import repair_duplicate_ids
     from semantic_validation import validate_semantic_script
     from rendering_engine.engine import render_full_semantic_video
     from tts_generator import generate_speech
+    from config import RETENTION_MODE, MAX_IDLE_VISUAL_SECONDS
 
     run_dir = _make_run_dir(topic, "semantic")
     audio_dir = run_dir / "audio"
@@ -132,12 +133,22 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     logger.info("--- Step 1c: Validating semantic script ---")
     validate_semantic_script(script)
 
+    if RETENTION_MODE:
+        logger.info("--- Step 1d: Enriching retention beats ---")
+        from retention import ensure_retention_beats
+        script = ensure_retention_beats(script, max_idle_seconds=MAX_IDLE_VISUAL_SECONDS)
+
     script_json_path = run_dir / "script.json"
     script_json_path.write_text(
         json.dumps(script.model_dump(by_alias=True), indent=2, default=str),
         encoding="utf-8",
     )
     logger.info("Saved script JSON -> %s", script_json_path)
+
+    if script.video_title:
+        logger.info("Video title: %s", script.video_title)
+    if script.suggested_youtube_title:
+        logger.info("YouTube title: %s", script.suggested_youtube_title)
 
     logger.info("--- Step 2: Generating TTS audio ---")
     for scene in script.scenes:
@@ -148,8 +159,17 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
         logger.info("Scene '%s': audio %.2fs -> %s", scene.scene_id, duration, audio_path)
 
     scene_paths = [s.audio_path for s in script.scenes if s.audio_path]
+    scene_actions = [
+        [a.model_dump(by_alias=True) for a in s.actions]
+        for s in script.scenes
+    ]
     combined_audio = str(run_dir / "full_narration.mp3")
-    build_semantic_narration_track(scene_paths, output_path=combined_audio)
+    build_semantic_narration_track(
+        scene_paths,
+        output_path=combined_audio,
+        scene_actions=scene_actions,
+        category=script.category,
+    )
 
     logger.info("--- Step 3: Rendering full video (single Manim scene) ---")
     silent_video = render_full_semantic_video(script, output_dir=video_dir)

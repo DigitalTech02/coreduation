@@ -33,17 +33,22 @@ VIDEO STRUCTURE (10-16 scenes)
    - show_comparison for trade-offs (SQL vs NoSQL, push vs pull)
    - show_table for schema design, partitioning strategy
 
-4. DATA FLOW (2-3 scenes)
+4. PRACTICAL CODE / API DESIGN (1 scene)  ← REQUIRED
+   - ALWAYS include at least one scene with show_code_block showing real code:
+     API endpoint definition, SQL schema, Redis config, queue consumer, etc.
+   - Viewers expect to see the actual interface, not just boxes and arrows
+
+5. DATA FLOW (2-3 scenes)
    - show_sequence_diagram for the core request lifecycle
    - show_data_flow for the full write/read path
    - Annotate with latency, failure modes
 
-5. SCALING & TRADE-OFFS (2-3 scenes)
+6. SCALING & TRADE-OFFS (2-3 scenes)
    - show_comparison: monolith vs microservices, sync vs async
    - show_table: capacity estimates, sharding plan
    - show_bullet_list: bottlenecks and mitigations
 
-6. SUMMARY (1 scene)
+7. SUMMARY (1 scene)
    - Architecture recap as show_bullet_list""",
 
     narration_style="""\
@@ -75,8 +80,19 @@ PRIMARY TOOLS (use heavily):
 
 SECONDARY TOOLS:
 - show_bullet_list — requirements, constraints, bottleneck lists
-- show_code_block — API contracts, SQL schemas, config snippets
+- show_code_block — API contracts, SQL schemas, config snippets. EVERY
+  system design video MUST include at least one show_code_block with real
+  code (API definition, schema DDL, config, etc.).
 - show_math — QPS calculations, storage estimates
+
+RETENTION TOOLS (use throughout):
+- emphasize_text — highlight key design decisions, bottleneck reveals
+- shake_element — show system failure, overloaded node, single point of failure
+- pulse_element — highlight the component being discussed
+- focus_camera — zoom into the bottleneck or the scaling solution
+- dim_except — spotlight the component under discussion
+- add_callout — annotate throughput, latency, capacity numbers
+- show_progress / update_progress — track design iteration steps
 
 AVOID:
 - Don't use show_layer_stack, show_header_breakdown — networking-specific

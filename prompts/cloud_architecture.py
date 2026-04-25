@@ -32,21 +32,27 @@ VIDEO STRUCTURE (10-16 scenes)
    - Show how services connect using create_connection
    - Explain configuration with show_code_block (Terraform, YAML, CLI)
 
-4. REQUEST / DATA FLOW (2-3 scenes)
+4. INFRASTRUCTURE AS CODE / CLI (1 scene)  ← REQUIRED
+   - ALWAYS include at least one scene with show_code_block showing real IaC
+     or CLI commands the viewer can use (Terraform, CloudFormation, AWS CLI,
+     gcloud, kubectl, docker-compose, etc.)
+   - Viewers expect copy-paste-ready deployment snippets, not just diagrams
+
+5. REQUEST / DATA FLOW (2-3 scenes)
    - Trace a user request through the architecture using show_data_flow
    - Show the full hop-by-hop path with labels at each stage
    - Highlight latency, caching, and failover points
 
-5. SCALING & RELIABILITY (1-2 scenes)
+6. SCALING & RELIABILITY (1-2 scenes)
    - show_comparison: single-region vs multi-region
    - show_table: capacity planning, cost estimates
    - Auto-scaling rules, health checks
 
-6. SECURITY & BEST PRACTICES (1 scene)
+7. SECURITY & BEST PRACTICES (1 scene)
    - Network segmentation, IAM, encryption
    - show_bullet_list with key security principles
 
-7. SUMMARY (1 scene)
+8. SUMMARY (1 scene)
    - Architecture recap as show_bullet_list""",
 
     narration_style="""\
@@ -76,7 +82,9 @@ PRIMARY TOOLS (use heavily):
   hop by hop with labels ("user -> CDN -> ALB -> ECS -> RDS")
 
 SECONDARY TOOLS:
-- show_code_block — Terraform snippets, AWS CLI, CloudFormation YAML
+- show_code_block — Terraform snippets, AWS CLI, CloudFormation YAML. EVERY
+  cloud architecture video MUST include at least one show_code_block with
+  real IaC or CLI commands.
 - show_comparison — single-AZ vs multi-AZ, serverless vs containers
 - show_table — cost estimates, capacity planning, SLA comparison
 - show_bullet_list — requirements, best practices, security checklist
@@ -84,6 +92,15 @@ SECONDARY TOOLS:
 ALSO USEFUL:
 - create_topology (star layout) — microservice architectures with central API gateway
 - show_sequence_diagram — request lifecycle, async processing chains
+
+RETENTION TOOLS (use throughout):
+- shake_element — show region failure, service outage, capacity limit
+- pulse_element — highlight the active service in a data flow
+- focus_camera — zoom into the failing region or scaling component
+- dim_except — spotlight the service under discussion
+- add_callout — annotate latency, cost, RPS, availability numbers
+- emphasize_text — "99.99% Availability!", "Single Point of Failure"
+- show_progress / update_progress — track architecture build steps
 
 AVOID:
 - Don't use show_layer_stack (OSI/TCP-IP) — this is for networking courses

@@ -41,9 +41,12 @@ VIDEO STRUCTURE (10-16 scenes)
    - send_packet with green colors for secured traffic
    - show_header_breakdown for security fields (MAC, signatures, tokens)
 
-5. CONFIGURATION & IMPLEMENTATION (1-2 scenes)
-   - show_code_block for security config (firewall rules, TLS setup, IAM policies)
+5. CONFIGURATION & IMPLEMENTATION (1-2 scenes)  ← REQUIRED
+   - ALWAYS include at least one scene with show_code_block showing real
+     security config the viewer can apply (firewall rules, TLS setup, IAM
+     policies, nginx SSL config, JWT validation, etc.)
    - show_table for cipher suites, key sizes, algorithm comparison
+   - Viewers need actionable defense steps, not just theory
 
 6. COMPARISON & BEST PRACTICES (1 scene)
    - show_comparison: secure vs insecure, TLS 1.2 vs 1.3, symmetric vs asymmetric
@@ -82,9 +85,19 @@ PRIMARY TOOLS (use heavily):
 
 SECONDARY TOOLS:
 - show_comparison — secure vs insecure configs, algorithm strengths
-- show_code_block — firewall rules, nginx TLS config, iptables, JWT structure
+- show_code_block — firewall rules, nginx TLS config, iptables, JWT structure.
+  EVERY security video MUST include at least one show_code_block with real,
+  actionable security config or commands.
 - show_table — cipher suite comparison, key size vs security level
 - show_bullet_list — threat checklist, hardening steps, OWASP top 10
+
+RETENTION TOOLS (use throughout):
+- shake_element — show the victim node being attacked, the server being compromised
+- pulse_element — highlight the attacker node or the vulnerable service
+- dim_except — spotlight the attacker and victim during an attack flow
+- add_callout — label malicious payloads, intercepted credentials, forged tokens
+- emphasize_text — "Compromised!", "Connection Secure", "Access Denied"
+- focus_camera — zoom into the attack point or the defense mechanism
 
 AVOID:
 - Don't use create_cloud_region / create_cloud_service unless the topic

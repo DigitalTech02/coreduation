@@ -6,13 +6,23 @@ allocated as ``conn_a_b``, ``conn_a_b__1``, … in :func:`_reserve_implicit_conn
 
 Duplicate **explicit** ids should be repaired by :func:`semantic_repair.repair_duplicate_ids`
 before this validator runs.
+
+Retention actions (``pulse_element``, ``shake_element``, ``focus_camera``,
+``add_callout``, ``dim_except``) log warnings for unknown target IDs instead
+of failing hard, because the renderers already handle missing targets gracefully
+and the LLM sometimes references presentation objects (tables, text blocks) that
+don't have stable user-assigned IDs.
 """
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import TypeAdapter
 
 from models_semantic import EnrichedVideoScript, VisualAction
+
+logger = logging.getLogger(__name__)
 
 
 def _reserve_implicit_connection_id(from_node: str, to_node: str, known: set[str]) -> str:
@@ -27,14 +37,28 @@ def _reserve_implicit_connection_id(from_node: str, to_node: str, known: set[str
     return cid
 
 
+# Retention actions reference target_id(s) that may point at presentation objects
+# (tables, code blocks, etc.) whose internal keys are auto-generated and unknown
+# to the LLM.  We warn instead of failing so the video still renders — the
+# renderers already skip gracefully when a target is missing.
+_SOFT_REF_TYPES = frozenset({
+    "pulse_element", "shake_element", "focus_camera", "add_callout", "dim_except",
+})
+
+
 def validate_semantic_script(script: EnrichedVideoScript) -> list[str]:
-    """Process every action in script order. Raises ValueError if references break.
+    """Process every action in script order. Raises ValueError if core references break.
 
     Sequence diagram participants are names, not topology node IDs: we do not
     require them to appear in ``known``.
+
+    Retention actions (pulse, shake, focus, callout, dim) that reference unknown
+    IDs emit warnings but do **not** cause validation failure — the renderers
+    handle missing targets gracefully at render time.
     """
     known: set[str] = set()
     issues: list[str] = []
+    warnings: list[str] = []
 
     def add_id(obj_id: str, scene_id: str, ctx: str) -> None:
         if obj_id in known:
@@ -44,6 +68,11 @@ def validate_semantic_script(script: EnrichedVideoScript) -> list[str]:
     def need(ref: str, scene_id: str, ctx: str) -> None:
         if ref and ref not in known:
             issues.append(f"scene {scene_id} {ctx}: unknown id {ref!r}")
+
+    def soft_need(ref: str, scene_id: str, ctx: str) -> None:
+        """Warn (don't fail) for retention action targets that may be auto-keyed."""
+        if ref and ref not in known:
+            warnings.append(f"scene {scene_id} {ctx}: unknown id {ref!r} (will skip at render)")
 
     for scene in script.scenes:
         sid = scene.scene_id
@@ -98,11 +127,38 @@ def validate_semantic_script(script: EnrichedVideoScript) -> list[str]:
                 for hop in action.hops:
                     need(hop.node_id, sid, "show_data_flow")
 
+            elif t == "pulse_element":
+                soft_need(action.target_id, sid, "pulse_element")
+
+            elif t == "shake_element":
+                soft_need(action.target_id, sid, "shake_element")
+
+            elif t == "focus_camera":
+                if action.target_id:
+                    soft_need(action.target_id, sid, "focus_camera")
+
+            elif t == "add_callout":
+                soft_need(action.target_id, sid, "add_callout")
+
+            elif t == "dim_except":
+                for tid in action.target_ids:
+                    soft_need(tid, sid, "dim_except")
+
+            elif t in (
+                "reset_camera", "show_progress", "update_progress",
+                "emphasize_text", "restore_opacity", "scene_transition",
+            ):
+                pass
+
+    if warnings:
+        for w in warnings:
+            logger.warning("Validation (soft): %s", w)
+
     if issues:
         msg = "Semantic validation failed:\n" + "\n".join(f"  - {i}" for i in issues)
         raise ValueError(msg)
 
-    return []
+    return warnings
 
 
 def parse_actions_from_dicts(raw: list[dict]) -> list:

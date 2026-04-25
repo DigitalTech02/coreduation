@@ -84,6 +84,13 @@ SECONDARY TOOLS:
 - create_connection — relationship mapping between stakeholders/systems
 - show_code_block — user story templates, acceptance criteria format
 
+RETENTION TOOLS (use throughout):
+- emphasize_text — spotlight key business insights and decisions
+- pulse_element — highlight the active framework element
+- dim_except — focus on one quadrant or category at a time
+- add_callout — annotate metrics, KPIs, costs
+- show_progress / update_progress — track analysis framework steps
+
 AVOID:
 - Don't use send_packet, show_layer_stack, show_header_breakdown — networking only
 - Don't use create_cloud_region / create_cloud_service — cloud only

@@ -370,6 +370,88 @@ class ShowDataFlow(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Category 6: Retention & Camera
+# ---------------------------------------------------------------------------
+
+class PulseElement(BaseModel):
+    type: Literal["pulse_element"] = "pulse_element"
+    target_id: str
+    intensity: float = 1.15
+    duration: float = 0.5
+    color: str | None = None
+
+
+class FocusCamera(BaseModel):
+    type: Literal["focus_camera"] = "focus_camera"
+    target_id: str | None = None
+    zoom: float = 1.2
+    duration: float = 1.0
+    x: float | None = None
+    y: float | None = None
+
+
+class ResetCamera(BaseModel):
+    type: Literal["reset_camera"] = "reset_camera"
+    duration: float = 1.0
+
+
+class ShowProgress(BaseModel):
+    type: Literal["show_progress"] = "show_progress"
+    label: str
+    current_step: int
+    total_steps: int
+    style: str = "sleek"
+
+
+class UpdateProgress(BaseModel):
+    type: Literal["update_progress"] = "update_progress"
+    label: str
+    current_step: int
+    total_steps: int
+
+
+class EmphasizeText(BaseModel):
+    type: Literal["emphasize_text"] = "emphasize_text"
+    text: str
+    emphasis_type: str = "pop"
+    duration: float = 1.0
+
+
+class ShakeElement(BaseModel):
+    type: Literal["shake_element"] = "shake_element"
+    target_id: str
+    duration: float = 0.5
+    intensity: float = 0.15
+
+
+class DimExcept(BaseModel):
+    type: Literal["dim_except"] = "dim_except"
+    target_ids: list[str]
+    opacity: float = 0.25
+    duration: float = 0.5
+
+
+class RestoreOpacity(BaseModel):
+    type: Literal["restore_opacity"] = "restore_opacity"
+    duration: float = 0.5
+
+
+class AddCallout(BaseModel):
+    type: Literal["add_callout"] = "add_callout"
+    target_id: str
+    text: str
+    position: str = "auto"
+    duration: float = 2.0
+
+
+class SceneTransition(BaseModel):
+    type: Literal["scene_transition"] = "scene_transition"
+    transition_type: str = "wipe"
+    label: str | None = None
+    duration: float = 0.8
+
+
+# ---------------------------------------------------------------------------
 # Union of all action types
 # ---------------------------------------------------------------------------
 
@@ -393,6 +475,17 @@ _VisualActionUnion = Union[
     CreateCloudRegion,
     CreateCloudService,
     ShowDataFlow,
+    PulseElement,
+    FocusCamera,
+    ResetCamera,
+    ShowProgress,
+    UpdateProgress,
+    EmphasizeText,
+    ShakeElement,
+    DimExcept,
+    RestoreOpacity,
+    AddCallout,
+    SceneTransition,
 ]
 
 VisualAction = Annotated[_VisualActionUnion, Field(discriminator="type")]
@@ -419,11 +512,28 @@ class SemanticScene(BaseModel):
         return coerce_scene_type(v)
 
 
+class RetentionBeat(BaseModel):
+    """Marker for a re-hook moment in the narration."""
+
+    scene_id: str = ""
+    text: str = ""
+
+
 class SemanticVideoScript(BaseModel):
     """Complete video script as returned by the LLM."""
 
     topic: str
     scenes: list[SemanticScene]
+
+    video_title: str = ""
+    video_hook: str = ""
+    open_loop_question: str = ""
+    open_loop_resolution_scene_id: str = ""
+    retention_beats: list[RetentionBeat | str] = Field(default_factory=list)
+    target_audience: str = ""
+    emotional_tone: str = ""
+    suggested_thumbnail_text: str = ""
+    suggested_youtube_title: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -458,9 +568,28 @@ class EnrichedVideoScript(BaseModel):
     category: str = ""
     title_card_subtitle: str = ""
 
+    video_title: str = ""
+    video_hook: str = ""
+    open_loop_question: str = ""
+    open_loop_resolution_scene_id: str = ""
+    retention_beats: list[RetentionBeat | str] = Field(default_factory=list)
+    target_audience: str = ""
+    emotional_tone: str = ""
+    suggested_thumbnail_text: str = ""
+    suggested_youtube_title: str = ""
+
     @classmethod
     def from_llm_output(cls, llm_script: SemanticVideoScript) -> EnrichedVideoScript:
         return cls(
             topic=llm_script.topic,
             scenes=[EnrichedScene(**s.model_dump()) for s in llm_script.scenes],
+            video_title=llm_script.video_title,
+            video_hook=llm_script.video_hook,
+            open_loop_question=llm_script.open_loop_question,
+            open_loop_resolution_scene_id=llm_script.open_loop_resolution_scene_id,
+            retention_beats=llm_script.retention_beats,
+            target_audience=llm_script.target_audience,
+            emotional_tone=llm_script.emotional_tone,
+            suggested_thumbnail_text=llm_script.suggested_thumbnail_text,
+            suggested_youtube_title=llm_script.suggested_youtube_title,
         )

@@ -25,6 +25,7 @@ class SpecialtyPrompt:
             f"has narration text and a list of VISUAL ACTIONS that describe what to show.\n\n"
             f"You do NOT write any code.  You only specify structured actions from the "
             f"vocabulary below, and a rendering engine handles all visuals deterministically.\n\n"
+            f"{RETENTION_STRATEGY}\n\n"
             f"{self.video_structure}\n\n"
             f"{self.narration_style}\n\n"
             f"{ACTION_VOCABULARY}\n\n"
@@ -33,6 +34,61 @@ class SpecialtyPrompt:
             f"{self.example_scene}\n\n"
             f"{OUTPUT_FORMAT}"
         )
+
+
+# ── Retention strategy (identical across all categories) ─────────────────
+
+RETENTION_STRATEGY = """\
+═══════════════════════════════════════════
+RETENTION-FIRST SCRIPTING
+═══════════════════════════════════════════
+
+A. HIGH-STAKES HOOK
+   Scene 1 MUST open with a real-world problem, risk, failure, or curiosity gap.
+   BAD: "Today we will learn binary search."
+   GOOD: "If you had to find one user in a database of 10 million, checking one \
+by one would be painfully slow. But there is a trick that finds the answer in \
+about 24 steps."
+
+B. OPEN LOOP
+   Introduce a question or unresolved challenge early (scene 1 or 2) and resolve \
+it near the end. Example: "Why does cutting the search space in half feel almost \
+unfairly powerful? We will answer that by the end."
+
+C. FAILURE-FIRST TEACHING
+   Show the bad/slow/wrong approach FIRST, then introduce the better one. Use \
+shake_element and dim_except to visualize failure. Examples: linear search before \
+binary search, full table scan before index lookup, timeout before retransmit.
+
+D. RE-HOOKS EVERY 45-60 SECONDS
+   Insert short attention resets in narration approximately every 45-60 seconds:
+   - "Here is the part most people miss."
+   - "Now watch what changes."
+   - "This is where the speedup happens."
+   - "Here is the hidden trick."
+
+E. CONVERSATIONAL BUT PROFESSIONAL TONE
+   Avoid textbook phrasing. Use direct, clear, energetic explanation.
+
+F. RECOMMENDED SCENE FLOW
+   Scene 1: High-stakes hook
+   Scene 2: Problem setup
+   Scene 3: Naive/wrong/slow approach (use shake_element for failure)
+   Scene 4: Introduce core idea (use emphasize_text)
+   Scene 5–N: Step-by-step explanation (use focus_camera, pulse_element, show_progress)
+   Midpoint scene: "Let's put it together"
+   Near-final scene: Real-world implication / failure case
+   Final scene: Strong summary + memorable takeaway
+
+G. VISUAL ENGAGEMENT
+   - Use pulse_element to draw attention to the active element
+   - Use focus_camera to zoom into the detail being explained
+   - Use shake_element when showing errors, failures, or wrong approaches
+   - Use dim_except to spotlight a specific element
+   - Use add_callout for important labels
+   - Use show_progress / update_progress for step-by-step algorithms
+   - Use emphasize_text for key phrases or big reveals\
+"""
 
 
 # ── Shared action vocabulary (identical across all categories) ───────────
@@ -148,7 +204,56 @@ plus type-specific parameters.  Available types:
 
 • show_data_flow
   Animate a request hopping through cloud services.
-  Params: hops (array of {node_id, label?}), label (string, optional), color (string, optional)\
+  Params: hops (array of {node_id, label?}), label (string, optional), color (string, optional)
+
+─── RETENTION & CAMERA ────────────────────
+
+• pulse_element
+  Make an existing element briefly pulse/glow to draw attention.
+  Params: target_id (existing element id), intensity (float, default 1.15), \
+duration (float, default 0.5), color (string, optional)
+
+• focus_camera
+  Zoom/pan camera to an object or area. Keep zoom conservative (1.1-1.35).
+  Params: target_id (existing element id, optional), zoom (float, default 1.2), \
+duration (float, default 1.0), x (float, optional), y (float, optional)
+
+• reset_camera
+  Return to normal full-frame view.
+  Params: duration (float, default 1.0)
+
+• show_progress
+  Show a persistent progress indicator (e.g. "Step 1 of 5: Find middle").
+  Params: label (string), current_step (int), total_steps (int), style (string, default "sleek")
+
+• update_progress
+  Update the progress indicator.
+  Params: label (string), current_step (int), total_steps (int)
+
+• emphasize_text
+  Show a large kinetic phrase briefly for impact.
+  Params: text (string), emphasis_type ("pop"|"fade", default "pop"), duration (float, default 1.0)
+
+• shake_element
+  Shake an element to indicate failure, error, or wrong choice.
+  Params: target_id (existing element id), duration (float, default 0.5), intensity (float, default 0.15)
+
+• dim_except
+  Dim all elements except specified targets to spotlight them.
+  Params: target_ids (array of existing element ids), opacity (float, default 0.25), duration (float, default 0.5)
+
+• restore_opacity
+  Restore all elements to normal opacity after dim_except.
+  Params: duration (float, default 0.5)
+
+• add_callout
+  Small explanatory label pointing to an element.
+  Params: target_id (existing element id), text (string), position ("auto"|"left"|"right"|"above"|"below", default "auto"), \
+duration (float, default 2.0)
+
+• scene_transition
+  Polished transition between major sections.
+  Params: transition_type ("wipe"|"fade", default "wipe"), label (string, optional), duration (float, default 0.8)\
 """
 
 # ── Shared rules (identical across all categories) ───────────────────────
@@ -173,17 +278,48 @@ unless you must remove_element that connection later.
 - For complex topologies, prefer create_topology over many individual create_node calls.
 - Keep each scene focused: 2-8 actions per scene is typical.
 - scene_id must be a unique lowercase slug with hyphens.
-- estimated_duration: realistic seconds for narration (15-30s per scene).\
+- estimated_duration: realistic seconds for narration (15-30s per scene).
+- REFERENCEABLE IDs: Only objects created by create_node, create_topology, \
+create_cloud_service, or create_cloud_region have stable IDs you can use as \
+target_id in retention actions (pulse_element, shake_element, focus_camera, \
+dim_except, add_callout). Presentation actions like show_table, show_text_block, \
+show_code_block, show_comparison, show_bullet_list do NOT produce IDs you can \
+reference. If you need to pulse/shake/callout a specific element, create it as a \
+node first (create_node) so it has a referenceable ID.
+- Always call restore_opacity after dim_except when you want to return to normal.
+- Always call reset_camera after focus_camera when the zoom is no longer needed.
+- show_progress should be placed early in step-by-step scenes; use \
+update_progress to advance the step counter.
+- Include at least one failure/error scenario per video when appropriate. Use \
+shake_element + a red highlight or callout to illustrate the failure.\
 """
 
 # ── Output format (identical across all categories) ──────────────────────
 
 OUTPUT_FORMAT = """\
-OUTPUT: Return a single JSON object only (no markdown). Top-level keys must be \
-"topic" (string) and "scenes" (array). Each scene object must include: scene_id, \
-title, type, narration, visual_description, actions (array of action objects), \
-estimated_duration. Field "type" MUST be exactly one of: "concept", "code", or \
-"visualization" (use "visualization" for demos/walkthroughs/diagrams; "code" for \
-commands/config; "concept" for explanations). Each action object must include \
-"type" and the parameters required for that type (see vocabulary above).\
+OUTPUT: Return a single JSON object only (no markdown).
+
+REQUIRED top-level keys:
+  "topic" (string), "scenes" (array)
+
+OPTIONAL top-level metadata (include when possible for better videos):
+  "video_title" — catchy YouTube title
+  "video_hook" — the opening hook line
+  "open_loop_question" — the unresolved question posed early
+  "open_loop_resolution_scene_id" — scene_id where the open loop is resolved
+  "retention_beats" — array of short re-hook phrases used in narration
+  "target_audience" — e.g. "CS students", "junior developers"
+  "emotional_tone" — e.g. "curious and energetic", "serious and precise"
+  "suggested_thumbnail_text" — short punchy text for a thumbnail
+  "suggested_youtube_title" — optimized YouTube title
+
+Each scene object must include: scene_id, title, type, narration, \
+visual_description, actions (array of action objects), estimated_duration.
+
+Field "type" MUST be exactly one of: "concept", "code", or "visualization" \
+(use "visualization" for demos/walkthroughs/diagrams; "code" for commands/config; \
+"concept" for explanations).
+
+Each action object must include "type" and the parameters required for that type \
+(see vocabulary above).\
 """

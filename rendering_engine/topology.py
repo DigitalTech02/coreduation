@@ -155,12 +155,17 @@ def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     shape.move_to(pos)
 
     label = Text(action.label, font_size=LABEL_FONT_SIZE, color=default_color)
+    max_label_w = NODE_WIDTH - 0.25
+    if label.width > max_label_w:
+        label.set_width(max_label_w)
     label.move_to(shape.get_center())
 
     parts = [shape, label]
 
     if action.sublabel:
         sub = Text(action.sublabel, font_size=SUBLABEL_FONT_SIZE, color=MUTED)
+        if sub.width > max_label_w:
+            sub.set_width(max_label_w)
         sub.next_to(label, DOWN, buff=0.1)
         parts.append(sub)
 

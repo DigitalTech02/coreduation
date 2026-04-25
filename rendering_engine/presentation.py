@@ -1,7 +1,12 @@
-"""Presentation renderers — text blocks, bullet lists, code blocks, comparisons."""
+"""Presentation renderers — text blocks, bullet lists, code blocks, comparisons.
+
+Uses varied entrance animations (Write, GrowFromCenter, SpiralIn, ApplyWave,
+Wiggle, Circumscribe) to keep text-heavy scenes visually engaging.
+"""
 
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING
 
 from manim import (
@@ -9,14 +14,20 @@ from manim import (
     LEFT,
     RIGHT,
     UP,
+    ApplyWave,
+    Circumscribe,
     DashedLine,
     FadeIn,
     FadeOut,
+    GrowFromCenter,
+    Indicate,
     Line,
     RoundedRectangle,
+    SpinInFromNothing,
     SurroundingRectangle,
     Text,
     VGroup,
+    Wiggle,
     Write,
 )
 
@@ -49,6 +60,51 @@ if TYPE_CHECKING:
 
     from rendering_engine.engine import SceneState
 
+_anim_cycle_counter = 0
+
+
+def _next_title_anim(mob):
+    """Cycle through varied entrance animations for titles."""
+    global _anim_cycle_counter
+    _anim_cycle_counter += 1
+    choice = _anim_cycle_counter % 4
+    if choice == 0:
+        return Write(mob, run_time=0.7)
+    elif choice == 1:
+        return GrowFromCenter(mob, run_time=0.6)
+    elif choice == 2:
+        return FadeIn(mob, shift=DOWN * 0.25, run_time=0.5)
+    else:
+        return FadeIn(mob, shift=RIGHT * 0.4, run_time=0.5)
+
+
+def _next_bullet_anim(mob, index: int):
+    """Varied entrance for progressive bullet items."""
+    choice = index % 4
+    if choice == 0:
+        return FadeIn(mob, shift=RIGHT * 0.35, run_time=0.4)
+    elif choice == 1:
+        return FadeIn(mob, shift=UP * 0.2, run_time=0.4)
+    elif choice == 2:
+        return GrowFromCenter(mob, run_time=0.45)
+    else:
+        return FadeIn(mob, shift=LEFT * 0.15 + UP * 0.1, run_time=0.4)
+
+
+def _post_title_flourish(scene, title_mob):
+    """Subtle post-entrance flourish on a title to add polish."""
+    global _anim_cycle_counter
+    choice = _anim_cycle_counter % 3
+    try:
+        if choice == 0:
+            scene.play(Indicate(title_mob, color=ACCENT, scale_factor=1.05), run_time=0.4)
+        elif choice == 1:
+            scene.play(ApplyWave(title_mob, amplitude=0.08, run_time=0.5))
+        else:
+            scene.play(Circumscribe(title_mob, color=PRIMARY, run_time=0.5, fade_out=True))
+    except Exception:
+        pass
+
 
 def _with_shadow(content: VGroup) -> VGroup:
     """Wrap *content* in a VGroup with a drop shadow behind it."""
@@ -66,10 +122,11 @@ def _with_shadow(content: VGroup) -> VGroup:
 
 def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None:
     parts = []
+    title_mob = None
 
     if action.title:
-        title = Text(action.title, font_size=TITLE_FONT_SIZE, color=PRIMARY)
-        parts.append(title)
+        title_mob = Text(action.title, font_size=TITLE_FONT_SIZE, color=PRIMARY)
+        parts.append(title_mob)
 
     if action.body:
         body = Text(
@@ -86,7 +143,13 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     content = VGroup(*parts).arrange(DOWN, buff=0.4)
     group = _with_shadow(content)
     state.register(f"text_{action.title or 'block'}", group)
-    scene.play(FadeIn(group), run_time=FADE_DURATION)
+
+    if title_mob and len(parts) > 1:
+        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        _post_title_flourish(scene, title_mob)
+        scene.play(FadeIn(parts[1], shift=UP * 0.15), run_time=0.5)
+    else:
+        scene.play(_next_title_anim(parts[0]), run_time=0.6)
 
 
 # ---------------------------------------------------------------------------
@@ -95,10 +158,11 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
 
 def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> None:
     parts = []
+    title_mob = None
 
     if action.title:
-        title = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
-        parts.append(title)
+        title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        parts.append(title_mob)
 
     bullets = []
     for item_text in action.items:
@@ -114,12 +178,13 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     group = _with_shadow(content)
     state.register(f"bullets_{action.title or 'list'}", group)
 
-    if action.title:
-        scene.play(FadeIn(parts[0]), run_time=FADE_DURATION)
+    if title_mob:
+        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        _post_title_flourish(scene, title_mob)
 
     if action.progressive:
-        for bullet in bullets:
-            scene.play(FadeIn(bullet, shift=RIGHT * 0.3), run_time=0.4)
+        for i, bullet in enumerate(bullets):
+            scene.play(_next_bullet_anim(bullet, i))
             scene.wait(SHORT_PAUSE)
     else:
         scene.play(FadeIn(bullet_group), run_time=FADE_DURATION)
@@ -131,10 +196,11 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
 
 def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None:
     parts = []
+    title_mob = None
 
     if action.title:
-        title = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
-        parts.append(title)
+        title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        parts.append(title_mob)
 
     code_lines = []
     for line_text in action.lines:
@@ -154,7 +220,12 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
     group = _with_shadow(content)
     state.register(f"code_{action.title or 'block'}", group)
 
-    scene.play(FadeIn(group), run_time=FADE_DURATION)
+    if title_mob:
+        scene.play(_next_title_anim(title_mob), run_time=0.6)
+
+    scene.play(FadeIn(bg), run_time=0.25)
+    for i, line_mob in enumerate(code_lines):
+        scene.play(FadeIn(line_mob, shift=RIGHT * 0.2), run_time=0.15)
 
     if action.highlight_lines:
         for line_idx in action.highlight_lines:
@@ -173,10 +244,11 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
 
 def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None:
     parts = []
+    title_mob = None
 
     if action.title:
-        title = Text(action.title, font_size=TITLE_FONT_SIZE, color=PRIMARY)
-        parts.append(title)
+        title_mob = Text(action.title, font_size=TITLE_FONT_SIZE, color=PRIMARY)
+        parts.append(title_mob)
 
     left_title = Text(action.left.title, font_size=SUBTITLE_FONT_SIZE, color=SECONDARY)
     left_items = VGroup(*[
@@ -205,4 +277,9 @@ def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None
     group = _with_shadow(content)
     state.register(f"comparison_{action.title or 'cmp'}", group)
 
-    scene.play(FadeIn(group), run_time=FADE_DURATION)
+    if title_mob:
+        scene.play(_next_title_anim(title_mob), run_time=0.6)
+
+    scene.play(FadeIn(left_col, shift=LEFT * 0.4), run_time=0.5)
+    scene.play(GrowFromCenter(divider), run_time=0.3)
+    scene.play(FadeIn(right_col, shift=RIGHT * 0.4), run_time=0.5)

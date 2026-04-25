@@ -27,10 +27,12 @@ VIDEO STRUCTURE (10-16 scenes)
    - Use show_text_block for definitions, show_bullet_list for properties
    - For patterns/principles: show_comparison (with vs without)
 
-3. CODE WALKTHROUGH (3-5 scenes)
+3. CODE WALKTHROUGH (3-5 scenes)  ← CORE OF THE VIDEO
    - Show code via show_code_block with progressive highlight_lines
    - ONE concept per code block — don't cram too much
    - Narrate each highlighted line: what it does and WHY
+   - MUST include real, runnable code (Python/JavaScript/Java etc.) — not
+     just bullet points about the concept. Viewers expect copy-paste code.
 
 4. EXECUTION TRACE (2-3 scenes)
    - Step through the code with a table (variable state per step)
@@ -79,6 +81,14 @@ SECONDARY TOOLS:
 - show_sequence_diagram — function call chains, recursion unwind, callback flows
 - create_node + create_connection — for design pattern diagrams
   (e.g. Observer pattern: subject node -> observer nodes)
+
+RETENTION TOOLS (use throughout):
+- emphasize_text — "O(n²) → O(n log n)!", key concept reveals
+- shake_element — show a stack overflow, infinite loop, wrong output
+- pulse_element — highlight the current line being executed
+- focus_camera — zoom into the relevant code section
+- add_callout — annotate variable values, return values, state changes
+- show_progress / update_progress — track execution steps
 
 AVOID:
 - Don't use send_packet, show_layer_stack, show_header_breakdown — networking only

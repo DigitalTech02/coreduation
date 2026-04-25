@@ -38,6 +38,13 @@ _PRESENTATION_TYPES = frozenset({
     "show_sequence_diagram",
 })
 
+# Overlay actions that should be categorised as "presentation" (cleaned up
+# at scene end or when the next _PRESENTATION_TYPE fires) but should NOT
+# themselves trigger clear_presentation — they're overlays on existing content.
+_SOFT_PRESENTATION_TYPES = frozenset({
+    "emphasize_text",
+})
+
 
 class SceneState:
     """Tracks mobjects for cross-action use within a segment.
@@ -53,21 +60,61 @@ class SceneState:
     def __init__(self) -> None:
         self.objects: dict[str, Any] = {}
         self._categories: dict[str, str] = {}
+        self._hidden: set[str] = set()
 
     def register(self, obj_id: str, mobject, category: str = "persistent") -> None:
         self.objects[obj_id] = mobject
         self._categories[obj_id] = category
+        self._hidden.discard(obj_id)
 
     def get(self, obj_id: str):
         return self.objects.get(obj_id)
 
+    def is_hidden(self, obj_id: str) -> bool:
+        return obj_id in self._hidden
+
     def unregister(self, obj_id: str) -> None:
         self.objects.pop(obj_id, None)
         self._categories.pop(obj_id, None)
+        self._hidden.discard(obj_id)
 
     def clear(self) -> None:
         self.objects.clear()
         self._categories.clear()
+        self._hidden.clear()
+
+    # -- visibility helpers ------------------------------------------------
+
+    def hide_persistent(self, scene) -> None:
+        """Fade persistent objects to invisible (keep in state for later restore)."""
+        to_hide = [
+            (k, v) for k, v in self.objects.items()
+            if self._categories.get(k) == "persistent"
+            and k not in self._hidden
+            and not k.startswith("__progress")
+        ]
+        if not to_hide:
+            return
+        scene.play(
+            *[mob.animate.set_opacity(0) for _, mob in to_hide],
+            run_time=0.3,
+        )
+        for k, _ in to_hide:
+            self._hidden.add(k)
+
+    def restore_persistent(self, scene) -> None:
+        """Restore hidden persistent objects to full visibility."""
+        to_show = [
+            (k, self.objects[k]) for k in list(self._hidden)
+            if k in self.objects
+        ]
+        if not to_show:
+            return
+        scene.play(
+            *[mob.animate.set_opacity(1) for _, mob in to_show],
+            run_time=0.3,
+        )
+        self._hidden.clear()
 
     # -- category helpers --------------------------------------------------
 
@@ -81,14 +128,19 @@ class SceneState:
         for k, _ in pres:
             self.objects.pop(k, None)
             self._categories.pop(k, None)
+            self._hidden.discard(k)
 
     def has_persistent(self) -> bool:
-        return any(c == "persistent" for c in self._categories.values())
+        return any(
+            c == "persistent" and k not in self._hidden
+            for k, c in self._categories.items()
+        )
 
     def persistent_bbox(self) -> tuple[float, float, float, float] | None:
-        """Return (left_x, right_x, bottom_y, top_y) of persistent objects."""
+        """Return (left_x, right_x, bottom_y, top_y) of visible persistent objects."""
         mobs = [v for k, v in self.objects.items()
-                if self._categories.get(k) == "persistent"]
+                if self._categories.get(k) == "persistent"
+                and k not in self._hidden]
         if not mobs:
             return None
         lefts  = [m.get_left()[0]   for m in mobs]
@@ -147,6 +199,19 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         render_show_comparison,
         render_show_text_block,
     )
+    from rendering_engine.retention import (
+        render_add_callout,
+        render_dim_except,
+        render_emphasize_text,
+        render_focus_camera,
+        render_pulse_element,
+        render_reset_camera,
+        render_restore_opacity,
+        render_scene_transition,
+        render_shake_element,
+        render_show_progress,
+        render_update_progress,
+    )
     from rendering_engine.sequence import render_show_sequence_diagram
     from rendering_engine.topology import (
         render_create_connection,
@@ -176,6 +241,17 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         "create_cloud_region": render_create_cloud_region,
         "create_cloud_service": render_create_cloud_service,
         "show_data_flow": render_show_data_flow,
+        "pulse_element": render_pulse_element,
+        "focus_camera": render_focus_camera,
+        "reset_camera": render_reset_camera,
+        "show_progress": render_show_progress,
+        "update_progress": render_update_progress,
+        "emphasize_text": render_emphasize_text,
+        "shake_element": render_shake_element,
+        "dim_except": render_dim_except,
+        "restore_opacity": render_restore_opacity,
+        "add_callout": render_add_callout,
+        "scene_transition": render_scene_transition,
     }
 
     handler = dispatch.get(action.type)
@@ -184,6 +260,7 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         return
 
     is_pres = action.type in _PRESENTATION_TYPES
+    is_soft_pres = action.type in _SOFT_PRESENTATION_TYPES
 
     if is_pres:
         state.clear_presentation(scene)
@@ -196,7 +273,7 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         return
     new_ids = set(state.objects) - pre_ids
 
-    category = "presentation" if is_pres else "persistent"
+    category = "presentation" if (is_pres or is_soft_pres) else "persistent"
     for nid in new_ids:
         state._categories[nid] = category
 
@@ -221,9 +298,11 @@ def _serialize_script(script: EnrichedVideoScript) -> dict:
     return {
         "topic": script.topic,
         "title_card_subtitle": script.title_card_subtitle or "",
+        "category": script.category or "",
         "scenes": [
             {
                 "scene_id": s.scene_id,
+                "narration": s.narration,
                 "actions": [a.model_dump(by_alias=True) for a in s.actions],
                 "audio_duration": s.audio_duration or s.estimated_duration,
             }

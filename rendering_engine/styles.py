@@ -151,6 +151,40 @@ TITLE_FADE_OUT = 0.4
 SCENE_FADE_OUT_SECONDS = 0.45
 SCENE_GAP_SECONDS = 0.4
 
+# Progress UI
+PROGRESS_BAR_HEIGHT = 0.06
+PROGRESS_BAR_WIDTH = 3.0
+PROGRESS_LABEL_FONT_SIZE = 16
+PROGRESS_Y_OFFSET = -3.55
+PROGRESS_COLOR = BLUE_B
+PROGRESS_BG_COLOR = GREY_D
+
+# Subtitle
+SUBTITLE_FONT_SIZE_DISPLAY = 28
+SUBTITLE_BG_OPACITY = 0.65
+SUBTITLE_Y_OFFSET = -3.15
+SUBTITLE_MAX_WIDTH = 11.0
+
+# Callout
+CALLOUT_FONT_SIZE = 18
+CALLOUT_LINE_COLOR = YELLOW_B
+CALLOUT_BG_OPACITY = 0.75
+
+# Emphasis text
+EMPHASIS_FONT_SIZE = 52
+
+# Category accent colors
+CATEGORY_ACCENT: dict[str, ManimColor] = {
+    "networking": BLUE,
+    "data-structures": "#b388ff",
+    "programming": GREEN_B,
+    "cloud-architecture": "#4fc3f7",
+    "system-design": ORANGE,
+    "databases": YELLOW_B,
+    "security": RED_B,
+    "business-analysis": TEAL,
+}
+
 # ---------------------------------------------------------------------------
 # Icon shapes — simple geometric representations for node types
 # These return (shape_constructor_name, default_color) pairs.
@@ -197,20 +231,29 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{max(0,min(255,r)):02x}{max(0,min(255,g)):02x}{max(0,min(255,b)):02x}"
 
 
-def darken_color(color, factor: float = 0.35) -> str:
-    """Return a darker hex shade of *color* (ManimColor or hex string)."""
-    hex_str = str(color) if isinstance(color, str) else color.hex
+def _color_to_hex(color) -> str:
+    """Convert a ManimColor or hex string to a normalised ``#RRGGBB`` string."""
+    if isinstance(color, str):
+        hex_str = color
+    elif hasattr(color, "to_hex"):
+        hex_str = color.to_hex()
+    else:
+        hex_str = str(color)
     if not hex_str.startswith("#"):
         hex_str = f"#{hex_str}"
+    return hex_str
+
+
+def darken_color(color, factor: float = 0.35) -> str:
+    """Return a darker hex shade of *color* (ManimColor or hex string)."""
+    hex_str = _color_to_hex(color)
     r, g, b = _hex_to_rgb(hex_str)
     return _rgb_to_hex(int(r * (1 - factor)), int(g * (1 - factor)), int(b * (1 - factor)))
 
 
 def lighten_color(color, factor: float = 0.3) -> str:
     """Return a lighter hex shade of *color*."""
-    hex_str = str(color) if isinstance(color, str) else color.hex
-    if not hex_str.startswith("#"):
-        hex_str = f"#{hex_str}"
+    hex_str = _color_to_hex(color)
     r, g, b = _hex_to_rgb(hex_str)
     return _rgb_to_hex(
         int(r + (255 - r) * factor),
