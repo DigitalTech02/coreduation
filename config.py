@@ -65,3 +65,70 @@ SFX_VOLUME_DB: float = _float("SFX_VOLUME_DB", -16.0)
 # Background music
 ENABLE_BACKGROUND_MUSIC: bool = _bool("ENABLE_BACKGROUND_MUSIC", True)
 MUSIC_VOLUME_DB: float = _float("MUSIC_VOLUME_DB", -28.0)
+
+# --- Engagement upgrade ---
+
+# Vision QA loop (GPT-4o)
+ENABLE_VISION_QA: bool = _bool("ENABLE_VISION_QA", False)
+VISION_QA_SAMPLE_SECONDS: float = _float("VISION_QA_SAMPLE_SECONDS", 8.0)
+VISION_QA_MODEL: str = _str("VISION_QA_MODEL", "gpt-4o")
+
+# Cache layer (TTS + LLM scripts)
+ENABLE_CACHE: bool = _bool("ENABLE_CACHE", True)
+CACHE_DIR: str = _str("CACHE_DIR", ".cache")
+
+# Branding
+ENABLE_BRANDING: bool = _bool("ENABLE_BRANDING", True)
+CHANNEL_NAME: str = _str("CHANNEL_NAME", "CoreDuation")
+CHANNEL_TAGLINE: str = _str("CHANNEL_TAGLINE", "Engineering, explained.")
+ENABLE_INTRO_CARD: bool = _bool("ENABLE_INTRO_CARD", True)
+ENABLE_OUTRO_CARD: bool = _bool("ENABLE_OUTRO_CARD", True)
+ENABLE_WATERMARK: bool = _bool("ENABLE_WATERMARK", True)
+
+# Themes
+ENABLE_THEMED_BACKGROUNDS: bool = _bool("ENABLE_THEMED_BACKGROUNDS", True)
+ENABLE_GRADIENT_BACKGROUND: bool = _bool("ENABLE_GRADIENT_BACKGROUND", True)
+
+# Whisper-aligned kinetic typography
+ENABLE_KINETIC_SUBTITLES: bool = _bool("ENABLE_KINETIC_SUBTITLES", False)
+WHISPER_MODEL: str = _str("WHISPER_MODEL", "base")
+
+# Multi-voice TTS (per-scene mood)
+ENABLE_MULTI_VOICE: bool = _bool("ENABLE_MULTI_VOICE", True)
+DEFAULT_VOICE_MOOD: str = _str("DEFAULT_VOICE_MOOD", "narrator")
+
+# Mood-matched background music
+ENABLE_MOOD_MUSIC: bool = _bool("ENABLE_MOOD_MUSIC", True)
+
+# Easing & camera
+ENABLE_PARALLAX: bool = _bool("ENABLE_PARALLAX", True)
+
+# Pattern interrupts
+ENABLE_PATTERN_INTERRUPTS: bool = _bool("ENABLE_PATTERN_INTERRUPTS", True)
+PATTERN_INTERRUPT_INTERVAL: float = _float("PATTERN_INTERRUPT_INTERVAL", 50.0)
+
+# AI B-roll
+ENABLE_AI_BROLL: bool = _bool("ENABLE_AI_BROLL", False)
+BROLL_IMAGE_MODEL: str = _str("BROLL_IMAGE_MODEL", "dall-e-3")
+
+# 3D topology
+ENABLE_3D_TOPOLOGY: bool = _bool("ENABLE_3D_TOPOLOGY", False)
+
+# Remotion chrome (intro/outro/lower-thirds rendered by Node project)
+ENABLE_REMOTION_CHROME: bool = _bool("ENABLE_REMOTION_CHROME", False)
+REMOTION_INTRO_DURATION: float = _float("REMOTION_INTRO_DURATION", 3.0)
+REMOTION_OUTRO_DURATION: float = _float("REMOTION_OUTRO_DURATION", 4.0)
+
+# YouTube upload
+ENABLE_YOUTUBE_UPLOAD: bool = _bool("ENABLE_YOUTUBE_UPLOAD", False)
+YOUTUBE_PRIVACY_STATUS: str = _str("YOUTUBE_PRIVACY_STATUS", "private")
+YOUTUBE_PRIVACY: str = YOUTUBE_PRIVACY_STATUS  # alias
+YOUTUBE_CATEGORY_ID: str = _str("YOUTUBE_CATEGORY_ID", "27")  # Education
+
+# Thumbnails
+ENABLE_THUMBNAIL_GEN: bool = _bool("ENABLE_THUMBNAIL_GEN", True)
+
+# Multi-language dubs
+ENABLE_DUBS: bool = _bool("ENABLE_DUBS", False)
+DUB_LANGUAGES: str = _str("DUB_LANGUAGES", "")  # comma-separated e.g. "es,hi,fr"
+OPENAI_TRANSLATION_MODEL: str = _str("OPENAI_TRANSLATION_MODEL", "gpt-4o")

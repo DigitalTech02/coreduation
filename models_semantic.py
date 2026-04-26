@@ -452,6 +452,57 @@ class SceneTransition(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Category 7: Visual Polish (B-roll, pattern interrupts, charts)
+# ---------------------------------------------------------------------------
+
+class ShowImage(BaseModel):
+    """Show a Ken-Burns pan over an AI-generated or local image."""
+
+    type: Literal["show_image"] = "show_image"
+    image_prompt: str = ""
+    image_path: str = ""
+    caption: str = ""
+    duration: float = 4.0
+    pan: str = "auto"  # left|right|in|out|auto
+
+
+class FlashCut(BaseModel):
+    """Single-frame flash to inject a pattern interrupt."""
+
+    type: Literal["flash_cut"] = "flash_cut"
+    color: str = "white"
+    duration: float = 0.08
+
+
+class ZoomPunch(BaseModel):
+    """Quick zoom-in spike then return — adds a kinetic accent."""
+
+    type: Literal["zoom_punch"] = "zoom_punch"
+    target_id: str | None = None
+    intensity: float = 0.18
+    duration: float = 0.45
+
+
+class GlitchTransition(BaseModel):
+    """Brief RGB-split glitch — used at section boundaries."""
+
+    type: Literal["glitch_transition"] = "glitch_transition"
+    duration: float = 0.45
+
+
+class ShowChart(BaseModel):
+    """Real animated chart rendered out-of-process via Playwright + D3."""
+
+    type: Literal["show_chart"] = "show_chart"
+    chart_type: str = "bar"  # bar|line|donut|heatmap
+    title: str = ""
+    labels: list[str] = Field(default_factory=list)
+    series: list[float] = Field(default_factory=list)
+    series_labels: list[str] = Field(default_factory=list)
+    duration: float = 4.0
+
+
+# ---------------------------------------------------------------------------
 # Union of all action types
 # ---------------------------------------------------------------------------
 
@@ -486,6 +537,11 @@ _VisualActionUnion = Union[
     RestoreOpacity,
     AddCallout,
     SceneTransition,
+    ShowImage,
+    FlashCut,
+    ZoomPunch,
+    GlitchTransition,
+    ShowChart,
 ]
 
 VisualAction = Annotated[_VisualActionUnion, Field(discriminator="type")]
@@ -505,6 +561,10 @@ class SemanticScene(BaseModel):
     visual_description: str
     actions: list[VisualAction]
     estimated_duration: float
+
+    voice_mood: str = ""
+    music_mood: str = ""
+    image_prompt: str = ""
 
     @field_validator("type", mode="before")
     @classmethod
@@ -534,6 +594,8 @@ class SemanticVideoScript(BaseModel):
     emotional_tone: str = ""
     suggested_thumbnail_text: str = ""
     suggested_youtube_title: str = ""
+    suggested_youtube_tags: list[str] = Field(default_factory=list)
+    suggested_youtube_description: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +615,9 @@ class EnrichedScene(BaseModel):
     audio_path: str | None = None
     audio_duration: float | None = None
     video_path: str | None = None
+    voice_mood: str = ""
+    music_mood: str = ""
+    image_prompt: str = ""
 
     @field_validator("type", mode="before")
     @classmethod
@@ -577,6 +642,8 @@ class EnrichedVideoScript(BaseModel):
     emotional_tone: str = ""
     suggested_thumbnail_text: str = ""
     suggested_youtube_title: str = ""
+    suggested_youtube_tags: list[str] = Field(default_factory=list)
+    suggested_youtube_description: str = ""
 
     @classmethod
     def from_llm_output(cls, llm_script: SemanticVideoScript) -> EnrichedVideoScript:
@@ -592,4 +659,6 @@ class EnrichedVideoScript(BaseModel):
             emotional_tone=llm_script.emotional_tone,
             suggested_thumbnail_text=llm_script.suggested_thumbnail_text,
             suggested_youtube_title=llm_script.suggested_youtube_title,
+            suggested_youtube_tags=llm_script.suggested_youtube_tags,
+            suggested_youtube_description=llm_script.suggested_youtube_description,
         )

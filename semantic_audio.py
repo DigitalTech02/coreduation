@@ -11,6 +11,18 @@ from pydub import AudioSegment
 
 from rendering_engine.styles import SCENE_GAP_SECONDS, TITLE_CARD_SECONDS
 
+
+def _intro_seconds() -> float:
+    """Duration the branded intro card holds before the title card."""
+    try:
+        from config import ENABLE_BRANDING, ENABLE_INTRO_CARD
+        if not (ENABLE_BRANDING and ENABLE_INTRO_CARD):
+            return 0.0
+        from rendering_engine.branding import INTRO_DURATION
+        return float(INTRO_DURATION)
+    except Exception:
+        return 0.0
+
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output")
@@ -18,16 +30,16 @@ ASSETS_SFX_DIR = Path("assets/sfx")
 ASSETS_MUSIC_DIR = Path("assets/music")
 
 SFX_MAP: dict[str, str] = {
-    "create_node": "soft_pop.wav",
-    "create_connection": "connect_click.wav",
-    "send_packet": "whoosh.wav",
-    "send_broadcast": "multi_whoosh.wav",
-    "show_table": "click.wav",
-    "show_code_block": "keyboard_tick.wav",
-    "show_math": "sparkle_ping.wav",
-    "shake_element": "error_buzz.wav",
-    "scene_transition": "transition_sweep.wav",
-    "emphasize_text": "impact_pop.wav",
+    "create_node": "soft_pop.mp3",
+    "create_connection": "connect_click.mp3",
+    "send_packet": "whoosh.mp3",
+    "send_broadcast": "multi_whoosh.mp3",
+    "show_table": "click.mp3",
+    "show_code_block": "keyboard_tick.mp3",
+    "show_math": "sparkle_ping.mp3",
+    "shake_element": "error_buzz.mp3",
+    "scene_transition": "transition_sweep.mp3",
+    "emphasize_text": "impact_pop.mp3",
 }
 
 
@@ -47,13 +59,29 @@ def _load_sfx(action_type: str) -> AudioSegment | None:
         return None
 
 
-def _load_background_music(category: str = "") -> AudioSegment | None:
-    """Load a background music loop based on category."""
-    candidates = [
+_MOOD_MUSIC_FILES: dict[str, str] = {
+    "uplifting": "uplifting_loop.mp3",
+    "tense":     "tense_loop.mp3",
+    "curious":   "curious_loop.mp3",
+    "calm":      "calm_loop.mp3",
+    "dramatic":  "dramatic_loop.mp3",
+    "neutral":   "explain_loop.mp3",
+    "":          "explain_loop.mp3",
+}
+
+
+def _load_background_music(category: str = "", mood: str = "") -> AudioSegment | None:
+    """Load a background music loop based on (mood, category) preference order."""
+    candidates: list[Path] = []
+    if mood:
+        f = _MOOD_MUSIC_FILES.get(mood.lower())
+        if f:
+            candidates.append(ASSETS_MUSIC_DIR / f)
+    candidates.extend([
         ASSETS_MUSIC_DIR / f"{category}_loop.mp3",
         ASSETS_MUSIC_DIR / "explain_loop.mp3",
         ASSETS_MUSIC_DIR / "curious_loop.mp3",
-    ]
+    ])
     for path in candidates:
         if path.is_file():
             try:
@@ -79,14 +107,15 @@ def build_sfx_track(
     if not ENABLE_SFX:
         return None
 
-    total_ms = int(TITLE_CARD_SECONDS * 1000)
+    intro_s = _intro_seconds()
+    total_ms = int((TITLE_CARD_SECONDS + intro_s) * 1000)
     for i, dur in enumerate(scene_durations):
         total_ms += int(dur * 1000)
         if i < len(scene_durations) - 1:
             total_ms += int(SCENE_GAP_SECONDS * 1000)
 
     sfx_track = AudioSegment.silent(total_ms)
-    cursor_ms = int(TITLE_CARD_SECONDS * 1000)
+    cursor_ms = int((TITLE_CARD_SECONDS + intro_s) * 1000)
     any_sfx = False
 
     for i, (actions, dur) in enumerate(zip(scene_actions, scene_durations)):
@@ -115,12 +144,28 @@ def build_music_track(
     total_duration_ms: int,
     music_volume_db: float = -28.0,
     category: str = "",
+    scene_moods: list[str] | None = None,
+    scene_durations: list[float] | None = None,
 ) -> AudioSegment | None:
-    """Loop background music to fill the total duration, ducked to volume."""
-    from config import ENABLE_BACKGROUND_MUSIC
+    """Loop background music to fill the total duration, ducked to volume.
+
+    When ``scene_moods`` and ``scene_durations`` are provided and
+    ``ENABLE_MOOD_MUSIC`` is on, swap loops per scene with a smooth crossfade
+    so each scene's emotional tone has its own bed.
+    """
+    from config import ENABLE_BACKGROUND_MUSIC, ENABLE_MOOD_MUSIC
 
     if not ENABLE_BACKGROUND_MUSIC:
         return None
+
+    if ENABLE_MOOD_MUSIC and scene_moods and scene_durations:
+        return _build_mood_music_track(
+            total_duration_ms,
+            music_volume_db,
+            category,
+            scene_moods,
+            scene_durations,
+        )
 
     music = _load_background_music(category)
     if music is None:
@@ -133,11 +178,56 @@ def build_music_track(
     return looped[:total_duration_ms]
 
 
+def _build_mood_music_track(
+    total_duration_ms: int,
+    music_volume_db: float,
+    category: str,
+    scene_moods: list[str],
+    scene_durations: list[float],
+) -> AudioSegment | None:
+    """Construct a music track that swaps loop per scene."""
+    intro_s = _intro_seconds()
+    title_s = TITLE_CARD_SECONDS
+    leading_ms = int((intro_s + title_s) * 1000)
+
+    track = AudioSegment.silent(total_duration_ms)
+
+    # Background bed for the intro/title card (use neutral)
+    intro_bed = _load_background_music(category, "calm")
+    if intro_bed is not None and leading_ms > 0:
+        intro_bed = intro_bed + music_volume_db
+        loops = (leading_ms // len(intro_bed)) + 1
+        track = track.overlay((intro_bed * loops)[:leading_ms])
+
+    cursor_ms = leading_ms
+    for i, (mood, dur) in enumerate(zip(scene_moods, scene_durations)):
+        seg_len_ms = int(dur * 1000)
+        if seg_len_ms <= 0:
+            continue
+        loop = _load_background_music(category, mood or "")
+        if loop is None:
+            cursor_ms += seg_len_ms
+            if i < len(scene_durations) - 1:
+                cursor_ms += int(SCENE_GAP_SECONDS * 1000)
+            continue
+        loop = loop + music_volume_db
+        loops = (seg_len_ms // len(loop)) + 1
+        bed = (loop * loops)[:seg_len_ms].fade_in(400).fade_out(400)
+        end = min(cursor_ms + len(bed), len(track))
+        track = track[:cursor_ms].overlay(bed[: end - cursor_ms]) + track[end:]
+        cursor_ms += seg_len_ms
+        if i < len(scene_durations) - 1:
+            cursor_ms += int(SCENE_GAP_SECONDS * 1000)
+
+    return track
+
+
 def build_semantic_narration_track(
     scene_audio_paths: list[str],
     output_path: str | None = None,
     scene_actions: list[list[dict]] | None = None,
     category: str = "",
+    scene_moods: list[str] | None = None,
 ) -> str:
     """Prepend title-length silence, insert gap silence between scenes.
 
@@ -152,7 +242,8 @@ def build_semantic_narration_track(
     out = Path(output_path) if output_path else OUTPUT_DIR / "full_narration.mp3"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    combined = AudioSegment.silent(int(TITLE_CARD_SECONDS * 1000))
+    intro_s = _intro_seconds()
+    combined = AudioSegment.silent(int((TITLE_CARD_SECONDS + intro_s) * 1000))
     scene_durations: list[float] = []
 
     for i, p in enumerate(scene_audio_paths):
@@ -170,7 +261,13 @@ def build_semantic_narration_track(
             logger.info("Mixed SFX track into narration")
 
     if ENABLE_BACKGROUND_MUSIC:
-        music_track = build_music_track(len(combined), MUSIC_VOLUME_DB, category)
+        music_track = build_music_track(
+            len(combined),
+            MUSIC_VOLUME_DB,
+            category,
+            scene_moods=scene_moods,
+            scene_durations=scene_durations,
+        )
         if music_track is not None:
             combined = combined.overlay(music_track)
             logger.info("Mixed background music into narration")

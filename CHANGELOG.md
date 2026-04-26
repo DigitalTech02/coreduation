@@ -1,6 +1,156 @@
-# Retention Upgrade — Changelog
+# CoreDuation — Changelog
 
-## Overview
+## v3.0 — Engagement Upgrade (Apr 2026)
+
+Goes from "polished retention-focused explainer" to "broadcast-grade YouTube educational channel" — adds AI vision QA, branding chrome, multi-voice + multi-language, AI imagery, real D3 charts, pattern interrupts, and full distribution automation. **All features are opt-in via env flags and degrade gracefully when dependencies are missing.**
+
+### Phase 1 — Quick Wins (in-engine)
+
+| # | Feature | Modules |
+|---|---|---|
+| 1 | **GPT-4o vision QA loop** — sample silent video frames every N seconds, ask GPT-4o vision for blank/overlap/cutoff/illegibility issues, write `vision_qa.json` report | `vision_qa.py` |
+| 2 | **Disk caching layer** — TTS audio + LLM scripts + translations + B-roll cached by content hash via `diskcache` (≈10× faster iteration) | `caching.py`, `tts_generator.py`, `llm_orchestrator_semantic.py` |
+| 3 | **Channel branding** — animated intro card, outro Subscribe CTA, persistent corner watermark anchored to camera frame | `rendering_engine/branding.py` |
+| 4 | **Per-category visual themes** — full color palettes (bg gradient + primary + secondary + accent) per category, animated vertical gradient background | `rendering_engine/themes.py` |
+| 5 | **Whisper kinetic typography** — word-level audio alignment via OpenAI Whisper, karaoke-style subtitles with per-word reveal/highlight | `whisper_align.py`, `rendering_engine/subtitles.py` |
+| 6 | **Multi-voice TTS** — per-scene `voice_mood` (`narrator`, `excited`, `dramatic`, `calm`, `analytical`, `urgent`, `hook`) drives OpenAI/ElevenLabs voice swap with heuristic fallback | `voice_moods.py`, `tts_generator.py` |
+| 7 | **Mood-matched background music** — per-scene `music_mood` swaps/crossfades looped tracks dynamically | `semantic_audio.py` |
+| 8 | **Easing curves + parallax** — `cubic_ease_in_out` / `back_ease_out`, slow camera drift on title card and persistent topology scenes | `rendering_engine/easing.py`, `full_video_scene.py` |
+
+### Phase 2 — Hybrid Stack & AI Visuals
+
+| # | Feature | Modules |
+|---|---|---|
+| 9 | **AI-generated B-roll** — `show_image` action; DALL-E 3 generates topical illustrations, optional `rembg` background removal, Manim renders Ken Burns pan/zoom | `broll_generator.py`, `rendering_engine/broll.py` |
+| 10 | **Remotion chrome layer** — Node/React project for broadcast-quality intro / outro / lower-thirds; ffmpeg concats around the Manim core | `chrome/` (Node), `chrome_compositor.py` |
+| 11 | **Real D3 charts** — `show_chart` action renders true SVG bar/line/donut charts in headless Chromium via Playwright, screencaps to PNG, displays in Manim | `charts/renderer.py`, `rendering_engine/charts.py` |
+| 12 | **Pattern-interrupt effects** — `flash_cut`, `zoom_punch`, `glitch_transition` actions; auto-injected every `PATTERN_INTERRUPT_INTERVAL` seconds via `retention.py` | `rendering_engine/effects.py`, `retention.py` |
+| 13 | **Pseudo-3D topology** — depth shading + slow orbit drift on tree/mesh layouts when `ENABLE_3D_TOPOLOGY=true` | `rendering_engine/topology_3d.py` |
+
+### Phase 3 — Distribution & Scale
+
+| # | Feature | Modules |
+|---|---|---|
+| 14 | **YouTube auto-upload** — Google Data API v3 OAuth flow, resumable upload, auto-chapters from scene durations, custom thumbnail upload, SEO tags + description | `youtube_uploader.py` |
+| 15 | **Auto-thumbnail generator** — 1280×720 Pillow composite (themed gradient or DALL-E AI background, bold drop-shadow title, accent stripe, channel watermark) | `thumbnail_generator.py` |
+| 16 | **Multi-language dubs** — translate narration with GPT-4o, re-run TTS per language, remux silent video → `final_<lang>.mp4` (cached translations + audio) | `dubs.py` |
+| 17 | **Streamlit preview dashboard** — generate / pick / edit a run, fast TTS-only re-render via cache, full Manim re-render, inline preview of video + thumbnail + dubs + vision-QA report | `dashboard/app.py` |
+
+### Schema additions
+
+`SemanticVideoScript` / `EnrichedVideoScript`:
+
+- `suggested_youtube_tags: list[str]` — SEO tags for upload
+- `suggested_youtube_description: str` — opening 2-3 sentences (chapters appended automatically)
+
+`SemanticScene` / `EnrichedScene`:
+
+- `voice_mood: str` — drives per-scene TTS voice
+- `music_mood: str` — drives background-music swap
+- `image_prompt: str` — DALL-E prompt for B-roll
+
+New action models in `models_semantic.py`: `ShowImage`, `ShowChart`, `FlashCut`, `ZoomPunch`, `GlitchTransition`.
+
+### New env flags (defaults shown)
+
+```bash
+# Vision QA
+ENABLE_VISION_QA=false           # GPT-4o-vision frame QA after render
+VISION_QA_SAMPLE_SECONDS=8
+VISION_QA_MODEL=gpt-4o
+
+# Caching
+ENABLE_CACHE=true                # diskcache for TTS, LLM, translations, B-roll
+
+# Branding
+ENABLE_BRANDING=true
+ENABLE_INTRO_CARD=true
+ENABLE_OUTRO_CARD=true
+ENABLE_WATERMARK=true
+CHANNEL_NAME=CoreDuation
+CHANNEL_TAGLINE="Engineering, explained."
+
+# Themes
+ENABLE_THEMED_BACKGROUNDS=true
+ENABLE_GRADIENT_BACKGROUND=true
+
+# Kinetic typography
+ENABLE_KINETIC_SUBTITLES=false   # requires openai-whisper
+
+# Multi-voice TTS
+ENABLE_MULTI_VOICE=true
+
+# Mood music
+ENABLE_MOOD_MUSIC=true
+
+# Easing & parallax
+ENABLE_PARALLAX=true
+
+# Pattern interrupts
+ENABLE_PATTERN_INTERRUPTS=true
+PATTERN_INTERRUPT_INTERVAL=35
+
+# Remotion chrome (requires `cd chrome && npm install`)
+ENABLE_REMOTION_CHROME=false
+REMOTION_INTRO_DURATION=3.0
+REMOTION_OUTRO_DURATION=4.0
+
+# AI B-roll
+ENABLE_AI_BROLL=false
+BROLL_IMAGE_MODEL=dall-e-3
+
+# 3D topology
+ENABLE_3D_TOPOLOGY=false
+
+# YouTube upload (requires client_secret.json + youtube_token.json)
+ENABLE_YOUTUBE_UPLOAD=false
+YOUTUBE_PRIVACY_STATUS=private   # private | unlisted | public
+YOUTUBE_CATEGORY_ID=27           # 27 = Education
+
+# Thumbnails
+ENABLE_THUMBNAIL_GEN=true
+THUMBNAIL_USE_AI_BG=false
+
+# Dubs
+ENABLE_DUBS=false
+DUB_LANGUAGES=                   # comma-separated, e.g. "es,hi,fr"
+OPENAI_TRANSLATION_MODEL=gpt-4o
+```
+
+### New dependencies (all optional / fail-soft)
+
+```text
+diskcache              # caching
+openai-whisper         # kinetic subtitles
+pillow                 # thumbnails
+rembg                  # B-roll bg removal
+playwright             # D3 chart rendering (run `playwright install chromium` once)
+google-api-python-client / google-auth-httplib2 / google-auth-oauthlib  # YouTube upload
+streamlit              # preview dashboard
+```
+
+### Pipeline flow (updated)
+
+```
+Topic
+  └── LLM script (cached)
+        └── Repair / Validate / Retention beats / Pattern-interrupt injection
+              └── Voice-mood annotation
+                    └── TTS per scene (multi-voice, cached)
+                          └── Audio mux (mood-matched music + SFX)
+                                └── Manim render (themed bg + branding + parallax + Whisper subtitles)
+                                      └── Vision QA (GPT-4o)
+                                            └── Mux audio + Remotion chrome concat
+                                                  └── Thumbnail (Pillow / DALL-E)
+                                                        └── Multi-language dubs
+                                                              └── YouTube upload (chapters + SEO + thumbnail)
+```
+
+The Streamlit dashboard (`streamlit run dashboard/app.py`) provides a UI over every step — pick a run, edit narration / mood / B-roll prompt, hit *Re-render TTS only* (cache-fast) or *Re-render full video*, preview the final MP4 + thumbnail + QA report.
+
+---
+
+## v2.0 — Retention Upgrade (Apr 2026)
 
 Transforms generated videos from "static educational lecture" into "high-retention YouTube educational explainer" while keeping the deterministic Semantic JSON + Manim engine architecture intact.
 

@@ -194,38 +194,126 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
 # show_code_block
 # ---------------------------------------------------------------------------
 
+_CODE_MAX_HEIGHT = 5.2
+_CODE_MAX_WIDTH = 11.0
+_CODE_SCROLL_SPEED = 1.6
+
+
+def _build_code_lines(lines: list[str], max_h: float):
+    """Build code line mobjects, auto-reducing font if too many lines."""
+    from rendering_engine.styles import WHITE
+
+    n = len(lines)
+    font_size = CODE_FONT_SIZE
+    if n > 18:
+        font_size = max(12, CODE_FONT_SIZE - 6)
+    elif n > 12:
+        font_size = max(14, CODE_FONT_SIZE - 4)
+    elif n > 8:
+        font_size = max(16, CODE_FONT_SIZE - 2)
+
+    code_mobs = []
+    for line_text in lines:
+        lm = Text(line_text, font_size=font_size, font=FONT_MONO, color=WHITE)
+        lm.set_opacity(0.88)
+        code_mobs.append(lm)
+
+    buff = 0.10 if n > 12 else 0.12
+    group = VGroup(*code_mobs).arrange(DOWN, aligned_edge=LEFT, buff=buff)
+
+    if group.width > _CODE_MAX_WIDTH:
+        group.scale_to_fit_width(_CODE_MAX_WIDTH)
+
+    return code_mobs, group
+
+
 def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None:
+    from rendering_engine.styles import WHITE
+
     parts = []
     title_mob = None
 
     if action.title:
         title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        if title_mob.width > _CODE_MAX_WIDTH:
+            title_mob.set_width(_CODE_MAX_WIDTH)
         parts.append(title_mob)
 
-    code_lines = []
-    for line_text in action.lines:
-        line_mob = Text(line_text, font_size=CODE_FONT_SIZE, font=FONT_MONO, color=MUTED)
-        code_lines.append(line_mob)
-
-    code_group = VGroup(*code_lines).arrange(DOWN, aligned_edge=LEFT, buff=0.12)
-
-    bg = SurroundingRectangle(
-        code_group, color=MUTED, fill_color=BG_COLOR,
-        fill_opacity=0.7, buff=0.3, corner_radius=0.1,
-    )
-    code_with_bg = VGroup(bg, code_group)
-    parts.append(code_with_bg)
-
-    content = VGroup(*parts).arrange(DOWN, buff=0.4)
-    group = _with_shadow(content)
-    state.register(f"code_{action.title or 'block'}", group)
-
+    max_h = _CODE_MAX_HEIGHT
     if title_mob:
-        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        max_h -= (title_mob.height + 0.35)
 
-    scene.play(FadeIn(bg), run_time=0.25)
-    for i, line_mob in enumerate(code_lines):
-        scene.play(FadeIn(line_mob, shift=RIGHT * 0.2), run_time=0.15)
+    code_lines, code_group = _build_code_lines(action.lines, max_h)
+
+    needs_scroll = code_group.height > max_h
+    if not needs_scroll and code_group.height > max_h * 0.92:
+        code_group.scale_to_fit_height(max_h * 0.92)
+        needs_scroll = False
+
+    if needs_scroll:
+        visible_box_h = max_h
+        bg = RoundedRectangle(
+            width=min(code_group.width + 0.6, _CODE_MAX_WIDTH + 0.6),
+            height=visible_box_h + 0.3,
+            corner_radius=0.1,
+            color=MUTED,
+            fill_color=BG_COLOR,
+            fill_opacity=0.8,
+        )
+        bg_center = bg.get_center()
+        code_group.move_to(bg_center)
+        code_group.align_to(bg, UP).shift(DOWN * 0.15)
+
+        parts.append(VGroup(bg, code_group))
+        content = VGroup(*parts).arrange(DOWN, buff=0.35)
+        group = _with_shadow(content)
+        state.register(f"code_{action.title or 'block'}", group)
+
+        if title_mob:
+            scene.play(_next_title_anim(title_mob), run_time=0.6)
+
+        scene.play(FadeIn(bg), run_time=0.25)
+
+        visible_lines = [
+            lm for lm in code_lines
+            if lm.get_center()[1] >= bg.get_bottom()[1] - 0.1
+        ]
+        for lm in visible_lines[:6]:
+            scene.play(FadeIn(lm, shift=RIGHT * 0.2), run_time=0.10)
+        remaining = [lm for lm in visible_lines[6:]]
+        if remaining:
+            scene.play(*[FadeIn(lm) for lm in remaining], run_time=0.15)
+
+        overflow = code_group.height - visible_box_h
+        if overflow > 0:
+            scroll_time = overflow / _CODE_SCROLL_SPEED
+            scene.play(
+                code_group.animate.shift(UP * overflow),
+                run_time=max(scroll_time, 1.5),
+                rate_func=lambda t: t,
+            )
+            scene.wait(0.5)
+    else:
+        bg = SurroundingRectangle(
+            code_group, color=MUTED, fill_color=BG_COLOR,
+            fill_opacity=0.8, buff=0.3, corner_radius=0.1,
+        )
+        code_with_bg = VGroup(bg, code_group)
+        parts.append(code_with_bg)
+
+        content = VGroup(*parts).arrange(DOWN, buff=0.35)
+        group = _with_shadow(content)
+        state.register(f"code_{action.title or 'block'}", group)
+
+        if title_mob:
+            scene.play(_next_title_anim(title_mob), run_time=0.6)
+
+        scene.play(FadeIn(bg), run_time=0.25)
+        if len(code_lines) <= 8:
+            for line_mob in code_lines:
+                scene.play(FadeIn(line_mob, shift=RIGHT * 0.2), run_time=0.12)
+        else:
+            scene.play(*[FadeIn(lm) for lm in code_lines], run_time=0.4)
 
     if action.highlight_lines:
         for line_idx in action.highlight_lines:

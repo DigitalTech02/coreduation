@@ -40,6 +40,7 @@ from rendering_engine.styles import (
     NODE_STROKE_WIDTH,
     NODE_WIDTH,
     SUBLABEL_FONT_SIZE,
+    WHITE,
     apply_sheen,
     darken_color,
     resolve_color,
@@ -163,7 +164,8 @@ def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     parts = [shape, label]
 
     if action.sublabel:
-        sub = Text(action.sublabel, font_size=SUBLABEL_FONT_SIZE, color=MUTED)
+        sub = Text(action.sublabel, font_size=SUBLABEL_FONT_SIZE, color=WHITE)
+        sub.set_opacity(0.75)
         if sub.width > max_label_w:
             sub.set_width(max_label_w)
         sub.next_to(label, DOWN, buff=0.1)
@@ -214,9 +216,15 @@ def render_create_connection(scene: ManimScene, state: SceneState, action) -> No
 
     if action.label:
         mid = line.get_center()
-        lbl = Text(action.label, font_size=SUBLABEL_FONT_SIZE, color=color)
-        lbl.next_to(mid, UP, buff=0.15)
-        conn_group.add(lbl)
+        lbl = Text(action.label, font_size=SUBLABEL_FONT_SIZE - 2, color=WHITE)
+        lbl_bg = RoundedRectangle(
+            width=lbl.width + 0.2, height=lbl.height + 0.1,
+            corner_radius=0.05, stroke_width=0,
+            fill_color=BG_COLOR, fill_opacity=0.75,
+        )
+        lbl_bg.move_to(mid + UP * 0.18)
+        lbl.move_to(lbl_bg.get_center())
+        conn_group.add(lbl_bg, lbl)
 
     conn_id = _unique_connection_id(state, action)
     state.register(conn_id, conn_group)
@@ -268,6 +276,7 @@ def render_create_topology(scene: ManimScene, state: SceneState, action) -> None
 
     positions = _compute_layout_positions(action.layout.value, n, action.center_node_id, action.nodes)
 
+    created_node_ids: list[str] = []
     for i, node_def in enumerate(action.nodes):
         x, y = positions[i]
         create = CreateNode(
@@ -278,6 +287,20 @@ def render_create_topology(scene: ManimScene, state: SceneState, action) -> None
             icon_type=node_def.icon_type,
         )
         render_create_node(scene, state, create)
+        created_node_ids.append(node_def.id)
+
+    try:
+        from rendering_engine.topology_3d import (
+            add_orbit_drift,
+            apply_pseudo_depth,
+            is_enabled,
+        )
+        if is_enabled():
+            apply_pseudo_depth([state.objects[nid] for nid in created_node_ids
+                                 if nid in state.objects])
+            add_orbit_drift(scene)
+    except Exception:
+        pass
 
     connections = _compute_topology_connections(action.layout.value, action.nodes, action.center_node_id)
     for from_id, to_id in connections:
@@ -294,7 +317,7 @@ def _compute_layout_positions(
 ) -> list[tuple[float, float]]:
     if layout == "star":
         positions = []
-        radius = 2.8
+        radius = min(3.2, 2.2 + 0.18 * max(n - 4, 0))
         outer = [nd for nd in nodes if nd.id != center_id]
         if center_id:
             positions.append((0.0, 0.0))
@@ -308,7 +331,7 @@ def _compute_layout_positions(
         return positions
 
     if layout == "ring":
-        radius = 2.5
+        radius = min(3.0, 2.0 + 0.15 * max(n - 4, 0))
         return [
             (radius * math.cos(2 * math.pi * i / n + math.pi / 2),
              radius * math.sin(2 * math.pi * i / n + math.pi / 2))
@@ -316,8 +339,9 @@ def _compute_layout_positions(
         ]
 
     if layout == "bus":
-        start_x = -(n - 1) * 1.5
-        return [(start_x + i * 3.0, 0.0) for i in range(n)]
+        spacing = min(3.0, 10.0 / max(n - 1, 1))
+        start_x = -(n - 1) * spacing / 2
+        return [(start_x + i * spacing, 0.0) for i in range(n)]
 
     if layout == "tree":
         positions = [(0.0, 2.5)]
@@ -325,7 +349,9 @@ def _compute_layout_positions(
         level = 1
         while level_start < n:
             count = min(2 ** level, n - level_start)
-            width = count * 2.5
+            width = max(count * 2.8, 4.0)
+            if width > 12.0:
+                width = 12.0
             for j in range(count):
                 x = -width / 2 + j * (width / max(count - 1, 1))
                 positions.append((x, 2.5 - level * 1.8))
@@ -335,12 +361,19 @@ def _compute_layout_positions(
 
     if layout == "mesh":
         cols = math.ceil(math.sqrt(n))
+        col_spacing = min(3.5, 11.0 / max(cols, 1))
+        rows = math.ceil(n / cols)
+        row_spacing = min(2.5, 6.0 / max(rows, 1))
+        x_offset = -(cols - 1) * col_spacing / 2
+        y_offset = (rows - 1) * row_spacing / 2
         return [
-            (-3.0 + (i % cols) * 3.0, 2.0 - (i // cols) * 2.0)
+            (x_offset + (i % cols) * col_spacing,
+             y_offset - (i // cols) * row_spacing)
             for i in range(n)
         ]
 
-    return [(i * 2.5 - (n - 1) * 1.25, 0) for i in range(n)]
+    spacing = min(2.5, 10.0 / max(n - 1, 1))
+    return [(i * spacing - (n - 1) * spacing / 2, 0) for i in range(n)]
 
 
 def _compute_topology_connections(

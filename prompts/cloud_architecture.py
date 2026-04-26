@@ -102,6 +102,19 @@ RETENTION TOOLS (use throughout):
 - emphasize_text — "99.99% Availability!", "Single Point of Failure"
 - show_progress / update_progress — track architecture build steps
 
+DIAGRAM LAYOUT (mandatory — avoid overlapping boxes and unreadable diagrams):
+- At most **3 top-level** create_cloud_region boxes per scene, laid out as **left / center / right**
+  (use position: "left", "center", "right" — NOT all "center").
+- Each region label: **short** (under 28 characters), **one line**, plain ASCII, no line breaks.
+- Inside a region, place create_cloud_service nodes at **different** positions:
+  "top_left", "top_right", "bottom", "center" — never more than one service at "center" per region.
+- Prefer **fewer, clearer** services over cramming every AWS product into one frame. Split into
+  another scene if the diagram would be busy.
+- show_data_flow: **at most 5 hops**; each hop label **under 5 words** (e.g. "Edge miss", "Origin fetch").
+- Do not stack create_cloud_region inside create_cloud_region unless the parent is huge — prefer
+  a single row of peer regions (CDN edge / core / origin) in separate scenes if needed.
+- create_connection lines: keep degree of graph low; avoid crossing every node with every other node.
+
 AVOID:
 - Don't use show_layer_stack (OSI/TCP-IP) — this is for networking courses
 - Don't use show_header_breakdown — this is for packet analysis

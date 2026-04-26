@@ -20,8 +20,18 @@ output/
 *.tmp.mp4
 *TEMP_MPY*
 
+# Cache (TTS, LLM scripts, B-roll, translations)
+.cache/
+
+# YouTube OAuth tokens
+client_secret.json
+youtube_token.json
+
 # Manim media
 media/
+
+# Node modules
+node_modules/
 
 # IDE
 .vscode/

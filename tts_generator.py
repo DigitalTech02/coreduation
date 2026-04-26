@@ -26,57 +26,53 @@ def _measure_duration(audio_path: str) -> float:
     return len(audio) / 1000.0
 
 
-def _generate_openai_tts(text: str, output_path: str) -> None:
-    """Generate speech using OpenAI TTS API."""
-    from openai import OpenAI
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise EnvironmentError("OPENAI_API_KEY is not set")
-
-    client = OpenAI(api_key=api_key)
-    model = os.getenv("OPENAI_TTS_MODEL", "tts-1")
-    voice = os.getenv("OPENAI_TTS_VOICE", "alloy")
-
-    logger.info("OpenAI TTS: model=%s, voice=%s, length=%d chars", model, voice, len(text))
-
-    response = client.audio.speech.create(model=model, voice=voice, input=text)
-    response.stream_to_file(output_path)
-
-
-def _generate_elevenlabs_tts(text: str, output_path: str) -> None:
-    """Generate speech using ElevenLabs API."""
-    from elevenlabs.client import ElevenLabs
-
-    api_key = os.getenv("ELEVENLABS_API_KEY")
-    if not api_key:
-        raise EnvironmentError("ELEVENLABS_API_KEY is not set")
-
-    client = ElevenLabs(api_key=api_key)
-    voice_id = os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
-    model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_v3")
-
-    logger.info("ElevenLabs TTS: model=%s, voice=%s, length=%d chars", model_id, voice_id, len(text))
-
-    audio = client.text_to_speech.convert(
-        text=text,
-        voice_id=voice_id,
-        model_id=model_id,
-        output_format="mp3_44100_128",
-    )
-
-    with open(output_path, "wb") as f:
-        for chunk in audio:
-            if isinstance(chunk, bytes):
-                f.write(chunk)
+def _resolve_voice_settings(
+    provider_enum: "TTSProvider",
+    voice: str | None = None,
+    mood: str | None = None,
+) -> tuple[str, str]:
+    """Pick (model, voice) for the given provider, optionally overridden
+    by a per-scene mood (see :mod:`voice_moods`)."""
+    if provider_enum == TTSProvider.openai:
+        model = os.getenv("OPENAI_TTS_MODEL", "tts-1")
+        chosen = voice or os.getenv("OPENAI_TTS_VOICE", "alloy")
+        if mood:
+            try:
+                from voice_moods import voice_for_mood
+                chosen = voice_for_mood("openai", mood, default=chosen)
+            except Exception:
+                pass
+        return model, chosen
+    if provider_enum == TTSProvider.elevenlabs:
+        model = os.getenv("ELEVENLABS_MODEL_ID", "eleven_v3")
+        chosen = voice or os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
+        if mood:
+            try:
+                from voice_moods import voice_for_mood
+                chosen = voice_for_mood("elevenlabs", mood, default=chosen)
+            except Exception:
+                pass
+        return model, chosen
+    return "", ""
 
 
 def generate_speech(
-    text: str, output_path: str, provider: str | None = None
+    text: str,
+    output_path: str,
+    provider: str | None = None,
+    mood: str | None = None,
+    voice: str | None = None,
 ) -> float:
     """Convert text to speech and save to output_path.
 
     Returns the measured audio duration in seconds.
+
+    *mood* (optional) selects a voice variant per-scene (e.g. ``"excited"``,
+    ``"dramatic"``, ``"narrator"``); see :mod:`voice_moods`.
+    *voice* explicitly overrides the resolved voice.
+
+    Caches the audio bytes by ``(text, voice, model)`` so repeated runs are
+    instant.
     """
     _ensure_output_dir()
 
@@ -84,16 +80,55 @@ def generate_speech(
         provider = os.getenv("TTS_PROVIDER", "openai")
 
     provider_enum = TTSProvider(provider)
+    model, resolved_voice = _resolve_voice_settings(provider_enum, voice=voice, mood=mood)
 
-    logger.info("Generating speech with provider: %s -> %s", provider_enum.value, output_path)
+    try:
+        from caching import cache_tts_result, cached_tts
+        cached = cached_tts(text, resolved_voice, model, output_path)
+        if cached is not None:
+            return cached
+    except Exception as e:
+        logger.debug("TTS cache lookup failed (continuing): %s", e)
+
+    logger.info(
+        "Generating speech with provider: %s (voice=%s, model=%s, mood=%s) -> %s",
+        provider_enum.value, resolved_voice, model, mood or "default", output_path,
+    )
 
     if provider_enum == TTSProvider.openai:
-        _generate_openai_tts(text, output_path)
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise EnvironmentError("OPENAI_API_KEY is not set")
+        client = OpenAI(api_key=api_key)
+        response = client.audio.speech.create(model=model, voice=resolved_voice, input=text)
+        response.stream_to_file(output_path)
     elif provider_enum == TTSProvider.elevenlabs:
-        _generate_elevenlabs_tts(text, output_path)
+        from elevenlabs.client import ElevenLabs
+        api_key = os.getenv("ELEVENLABS_API_KEY")
+        if not api_key:
+            raise EnvironmentError("ELEVENLABS_API_KEY is not set")
+        client = ElevenLabs(api_key=api_key)
+        audio = client.text_to_speech.convert(
+            text=text,
+            voice_id=resolved_voice,
+            model_id=model,
+            output_format="mp3_44100_128",
+        )
+        with open(output_path, "wb") as f:
+            for chunk in audio:
+                if isinstance(chunk, bytes):
+                    f.write(chunk)
     else:
         raise ValueError(f"Unknown TTS provider: {provider}")
 
     duration = _measure_duration(output_path)
     logger.info("Audio generated: %.2fs -> %s", duration, output_path)
+
+    try:
+        from caching import cache_tts_result
+        cache_tts_result(text, resolved_voice, model, output_path, duration)
+    except Exception as e:
+        logger.debug("TTS cache store failed: %s", e)
+
     return duration

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from manim import (
@@ -40,6 +41,7 @@ from rendering_engine.styles import (
     SECONDARY,
     SHORT_PAUSE,
     SUBLABEL_FONT_SIZE,
+    WHITE,
     apply_sheen,
     darken_color,
     resolve_color,
@@ -50,6 +52,55 @@ if TYPE_CHECKING:
     from manim import Scene as ManimScene
 
     from rendering_engine.engine import SceneState
+
+
+def _clean_label(s: str, max_len: int = 48) -> str:
+    """Single-line label: no accidental line breaks, collapsed whitespace."""
+    t = re.sub(r"\s+", " ", (s or "").replace("\n", " ").replace("\r", " ")).strip()
+    if len(t) > max_len:
+        t = t[: max_len - 1].rstrip() + "…"
+    return t
+
+
+def _position_within_region(region, position: str) -> tuple[float, float, float]:
+    """Map named / numeric positions to coordinates *inside* a region mobject.
+
+    Services with ``region_id`` used to use global ``_parse_position("center")``
+    → (0,0,0) for every node, piling them on top of each other. This places
+    each service inside the parent region's bounding box instead.
+    """
+    from rendering_engine.topology import _parse_position
+
+    cx, cy, _ = region.get_center()
+    w = max(region.get_width() * 0.32, 0.55)
+    h = max(region.get_height() * 0.32, 0.4)
+    pos = (position or "center").strip()
+
+    if "," in pos:
+        try:
+            parts = [float(p.strip()) for p in pos.split(",")]
+            if len(parts) >= 2:
+                return (cx + parts[0], cy + parts[1], 0.0)
+        except Exception:
+            pass
+
+    p_low = pos.lower()
+    slots = {
+        "center": (cx, cy),
+        "left": (cx - w, cy),
+        "right": (cx + w, cy),
+        "top": (cx, cy + h),
+        "bottom": (cx, cy - h),
+        "top_left": (cx - w * 0.9, cy + h * 0.9),
+        "top_right": (cx + w * 0.9, cy + h * 0.9),
+        "bottom_left": (cx - w * 0.9, cy - h * 0.9),
+        "bottom_right": (cx + w * 0.9, cy - h * 0.9),
+    }
+    for key, (px, py) in slots.items():
+        if p_low == key or p_low.replace("_", " ") == key.replace("_", " "):
+            return (px, py, 0.0)
+
+    return (cx, cy, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +130,8 @@ def render_create_cloud_region(scene: ManimScene, state: SceneState, action) -> 
     """Draw a labeled bounding box representing a cloud region, VPC, or AZ."""
     pos = _parse_position(action.position)
 
-    width = 5.0
-    height = 3.5
+    width = 3.0 if not action.parent_id else 3.2
+    height = 2.2 if not action.parent_id else 2.4
 
     border = RoundedRectangle(
         width=width, height=height,
@@ -92,10 +143,14 @@ def render_create_cloud_region(scene: ManimScene, state: SceneState, action) -> 
     ).move_to(pos)
     apply_sheen(border, factor=0.2)
 
+    clean = _clean_label(action.label, max_len=36)
     label = Text(
-        action.label, font_size=SUBLABEL_FONT_SIZE,
-        color=MUTED,
+        clean, font_size=SUBLABEL_FONT_SIZE * 0.95,
+        color=WHITE,
     )
+    label.set_opacity(0.92)
+    if label.width > width + 0.2:
+        label.set_width(width + 0.2)
     label.next_to(border, UP, buff=0.1).align_to(border, direction=UP)
     label.shift(DOWN * 0.3)
 
@@ -132,24 +187,29 @@ def render_create_cloud_service(scene: ManimScene, state: SceneState, action) ->
     )
     apply_sheen(box, factor=0.3)
 
+    clean_name = _clean_label(action.label, max_len=32)
     svc_type_label = Text(
         action.service_type.value.replace("_", " ").title(),
-        font_size=SUBLABEL_FONT_SIZE * 0.85,
-        color=color_hex,
+        font_size=SUBLABEL_FONT_SIZE * 0.78,
+        color=WHITE,
     )
-    name_label = Text(action.label, font_size=LABEL_FONT_SIZE, color=color_hex)
+    svc_type_label.set_opacity(0.75)
+    name_label = Text(clean_name, font_size=LABEL_FONT_SIZE * 0.9, color=WHITE)
+    if name_label.width > NODE_WIDTH * 0.85:
+        name_label.set_width(NODE_WIDTH * 0.85)
 
-    inner = VGroup(name_label, svc_type_label).arrange(DOWN, buff=0.1)
+    inner = VGroup(name_label, svc_type_label).arrange(DOWN, buff=0.08)
     inner.move_to(box.get_center())
     node = VGroup(box, inner)
-
-    pos = _parse_position(action.position)
-    node.move_to(pos)
 
     if action.region_id:
         region = state.get(action.region_id)
         if region is not None:
-            node.move_to(pos)
+            node.move_to(_position_within_region(region, action.position))
+        else:
+            node.move_to(_parse_position(action.position))
+    else:
+        node.move_to(_parse_position(action.position))
 
     state.register(action.id, node)
     scene.play(FadeIn(node), run_time=FADE_DURATION)
@@ -173,10 +233,13 @@ def render_show_data_flow(scene: ManimScene, state: SceneState, action) -> None:
         stroke_width=1.5,
     )
     apply_sheen(packet_box, factor=0.35)
+    plab = _clean_label(action.label or "request", max_len=22)
     packet_label = Text(
-        action.label or "request", font_size=SUBLABEL_FONT_SIZE,
+        plab, font_size=max(12, int(SUBLABEL_FONT_SIZE) - 2),
         color="#0f1117",
     )
+    if packet_label.width > PACKET_WIDTH * 0.9:
+        packet_label.set_width(PACKET_WIDTH * 0.88)
     packet_label.move_to(packet_box.get_center())
     packet = VGroup(packet_box, packet_label)
 
@@ -200,11 +263,20 @@ def render_show_data_flow(scene: ManimScene, state: SceneState, action) -> None:
 
         hop_label = hops[i + 1].label
         if hop_label:
-            lbl = Text(hop_label, font_size=SUBLABEL_FONT_SIZE, color=color)
-            lbl.next_to(dst_mob, UP, buff=0.25)
-            scene.play(FadeIn(lbl), run_time=0.3)
+            short = _clean_label(hop_label, max_len=36)
+            lbl = Text(short, font_size=SUBLABEL_FONT_SIZE - 2, color=WHITE)
+            mid = path.get_center() + UP * 0.35
+            pill = RoundedRectangle(
+                width=min(lbl.width + 0.35, 5.5), height=lbl.height + 0.14,
+                corner_radius=0.06, stroke_width=0,
+                fill_color=BG_COLOR, fill_opacity=0.88,
+            )
+            lbl.move_to(mid)
+            pill.move_to(mid)
+            hop_grp = VGroup(pill, lbl)
+            scene.play(FadeIn(hop_grp), run_time=0.25)
             scene.wait(SHORT_PAUSE)
-            scene.play(FadeOut(lbl), run_time=0.2)
+            scene.play(FadeOut(hop_grp), run_time=0.2)
 
         scene.play(Indicate(dst_mob, color=color, scale_factor=1.05), run_time=0.4)
 

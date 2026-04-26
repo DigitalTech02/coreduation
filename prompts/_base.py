@@ -310,11 +310,23 @@ OPTIONAL top-level metadata (include when possible for better videos):
   "retention_beats" — array of short re-hook phrases used in narration
   "target_audience" — e.g. "CS students", "junior developers"
   "emotional_tone" — e.g. "curious and energetic", "serious and precise"
-  "suggested_thumbnail_text" — short punchy text for a thumbnail
-  "suggested_youtube_title" — optimized YouTube title
+  "suggested_thumbnail_text" — short punchy text for a thumbnail (3-6 words max)
+  "suggested_youtube_title" — optimized YouTube title (<70 chars, hooks viewer)
+  "suggested_youtube_tags" — array of 8-15 SEO-friendly tags (no '#', e.g. "btree", "databases")
+  "suggested_youtube_description" — 2-3 sentence opening for the YouTube description \
+(do NOT include chapters; the pipeline appends those automatically)
 
 Each scene object must include: scene_id, title, type, narration, \
 visual_description, actions (array of action objects), estimated_duration.
+
+OPTIONAL per-scene metadata that drives multi-voice TTS, music, and AI B-roll:
+  "voice_mood" — one of: "narrator", "excited", "dramatic", "calm",
+                 "analytical", "urgent", "hook" (use "hook" for scene 1)
+  "music_mood" — one of: "uplifting", "tense", "curious", "calm",
+                 "dramatic", "neutral" (drives background music swap)
+  "image_prompt" — short DALL-E prompt for B-roll if the scene benefits from
+                   a relatable photo/illustration (e.g. "a busy library
+                   librarian organising shelves"); leave empty if not needed
 
 Field "type" MUST be exactly one of: "concept", "code", or "visualization" \
 (use "visualization" for demos/walkthroughs/diagrams; "code" for commands/config; \

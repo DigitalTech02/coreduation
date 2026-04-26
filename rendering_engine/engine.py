@@ -36,6 +36,8 @@ _PRESENTATION_TYPES = frozenset({
     "show_header_breakdown",
     "show_math",
     "show_sequence_diagram",
+    "show_image",
+    "show_chart",
 })
 
 # Overlay actions that should be categorised as "presentation" (cleaned up
@@ -91,7 +93,7 @@ class SceneState:
             (k, v) for k, v in self.objects.items()
             if self._categories.get(k) == "persistent"
             and k not in self._hidden
-            and not k.startswith("__progress")
+            and not k.startswith("__")
         ]
         if not to_hide:
             return
@@ -140,7 +142,8 @@ class SceneState:
         """Return (left_x, right_x, bottom_y, top_y) of visible persistent objects."""
         mobs = [v for k, v in self.objects.items()
                 if self._categories.get(k) == "persistent"
-                and k not in self._hidden]
+                and k not in self._hidden
+                and not k.startswith("__")]
         if not mobs:
             return None
         lefts  = [m.get_left()[0]   for m in mobs]
@@ -220,6 +223,13 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         render_remove_element,
         render_update_node,
     )
+    from rendering_engine.broll import render_show_image
+    from rendering_engine.effects import (
+        render_flash_cut,
+        render_glitch_transition,
+        render_zoom_punch,
+    )
+    from rendering_engine.charts import render_show_chart
 
     dispatch = {
         "create_node": render_create_node,
@@ -252,6 +262,11 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         "restore_opacity": render_restore_opacity,
         "add_callout": render_add_callout,
         "scene_transition": render_scene_transition,
+        "show_image": render_show_image,
+        "flash_cut": render_flash_cut,
+        "zoom_punch": render_zoom_punch,
+        "glitch_transition": render_glitch_transition,
+        "show_chart": render_show_chart,
     }
 
     handler = dispatch.get(action.type)
@@ -299,12 +314,17 @@ def _serialize_script(script: EnrichedVideoScript) -> dict:
         "topic": script.topic,
         "title_card_subtitle": script.title_card_subtitle or "",
         "category": script.category or "",
+        "video_title": script.video_title or "",
+        "video_hook": script.video_hook or "",
+        "emotional_tone": script.emotional_tone or "",
         "scenes": [
             {
                 "scene_id": s.scene_id,
+                "title": s.title,
                 "narration": s.narration,
                 "actions": [a.model_dump(by_alias=True) for a in s.actions],
                 "audio_duration": s.audio_duration or s.estimated_duration,
+                "audio_path": s.audio_path,
             }
             for s in script.scenes
         ],

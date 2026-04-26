@@ -84,8 +84,8 @@ SUBLABEL_FONT_SIZE = 16
 # ---------------------------------------------------------------------------
 # Node dimensions & spacing
 # ---------------------------------------------------------------------------
-NODE_WIDTH = 2.0
-NODE_HEIGHT = 1.2
+NODE_WIDTH = 1.7
+NODE_HEIGHT = 1.0
 NODE_CORNER_RADIUS = 0.15
 NODE_STROKE_WIDTH = 2.5
 NODE_BUFF = 0.6
@@ -148,8 +148,8 @@ LONG_PAUSE = 1.0
 TITLE_CARD_SECONDS = 2.5
 TITLE_FADE_IN = 0.45
 TITLE_FADE_OUT = 0.4
-SCENE_FADE_OUT_SECONDS = 0.45
-SCENE_GAP_SECONDS = 0.4
+SCENE_FADE_OUT_SECONDS = 0.30
+SCENE_GAP_SECONDS = 0.15
 
 # Progress UI
 PROGRESS_BAR_HEIGHT = 0.06
@@ -162,7 +162,7 @@ PROGRESS_BG_COLOR = GREY_D
 # Subtitle
 SUBTITLE_FONT_SIZE_DISPLAY = 28
 SUBTITLE_BG_OPACITY = 0.65
-SUBTITLE_Y_OFFSET = -3.15
+SUBTITLE_Y_OFFSET = -2.85
 SUBTITLE_MAX_WIDTH = 11.0
 
 # Callout
@@ -171,7 +171,7 @@ CALLOUT_LINE_COLOR = YELLOW_B
 CALLOUT_BG_OPACITY = 0.75
 
 # Emphasis text
-EMPHASIS_FONT_SIZE = 52
+EMPHASIS_FONT_SIZE = 38
 
 # Category accent colors
 CATEGORY_ACCENT: dict[str, ManimColor] = {

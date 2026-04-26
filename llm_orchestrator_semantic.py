@@ -7,6 +7,7 @@ rendering engine then translates those actions into Manim.
 Specialty prompts are loaded from ``prompts/`` based on the ``--category`` flag.
 """
 
+import hashlib
 import logging
 import os
 
@@ -18,6 +19,14 @@ from models_semantic import EnrichedVideoScript, SemanticVideoScript
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+def _hash_str(*parts: str) -> str:
+    h = hashlib.sha256()
+    for p in parts:
+        h.update(p.encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()[:32]
 
 
 def _strip_json_fences(content: str) -> str:
@@ -76,25 +85,48 @@ def generate_semantic_script(
         user_content += f"\n{specialty.user_prompt_extra}\n"
     user_content += "\nRespond with JSON only (no prose before or after)."
 
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        response_format={"type": "json_object"},
-    )
-
-    raw = completion.choices[0].message.content
-    if not raw:
-        raise ValueError("LLM returned empty content")
+    prompt_hash = _hash_str(system_prompt, user_content)
+    llm_script = None
 
     try:
-        llm_script = SemanticVideoScript.model_validate_json(_strip_json_fences(raw))
+        from caching import cached_llm_script, cache_llm_script
+        cached = cached_llm_script(topic, category, prompt_hash, model)
+        if cached:
+            try:
+                llm_script = SemanticVideoScript.model_validate(cached)
+            except Exception as e:
+                logger.warning("Cached LLM script failed validation, regenerating: %s", e)
+                llm_script = None
     except Exception as e:
-        logger.error("Failed to parse semantic script JSON: %s", e)
-        logger.debug("Raw response (first 2000 chars): %s", raw[:2000])
-        raise
+        logger.debug("LLM script cache lookup skipped: %s", e)
+
+    if llm_script is None:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        raw = completion.choices[0].message.content
+        if not raw:
+            raise ValueError("LLM returned empty content")
+
+        try:
+            llm_script = SemanticVideoScript.model_validate_json(_strip_json_fences(raw))
+        except Exception as e:
+            logger.error("Failed to parse semantic script JSON: %s", e)
+            logger.debug("Raw response (first 2000 chars): %s", raw[:2000])
+            raise
+
+        try:
+            from caching import cache_llm_script
+            cache_llm_script(topic, category, prompt_hash, model,
+                             llm_script.model_dump(by_alias=True))
+        except Exception as e:
+            logger.debug("LLM script cache store skipped: %s", e)
 
     logger.info(
         "Generated semantic script: %d scenes for topic: %s",

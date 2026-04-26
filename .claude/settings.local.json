@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"C:\\\\workspace\\\\coreduation1/tests\" -name \"*.py\" -type f 2>/dev/null | head -10)"
+    ]
+  }
+}

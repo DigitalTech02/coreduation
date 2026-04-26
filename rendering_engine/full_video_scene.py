@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from manim import DOWN, ORIGIN, UP, FadeIn, FadeOut, Text, VGroup
+from manim import DOWN, ORIGIN, UP, FadeIn, FadeOut, Text, VGroup, WHITE
 
 from rendering_engine.engine import SceneState, _dispatch_action, _rebuild_action
 from rendering_engine.styles import (
@@ -103,7 +103,9 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
     """
     persistent_ids = {
         k for k, cat in state._categories.items()
-        if cat == "persistent" and not k.startswith("__progress")
+        if cat == "persistent"
+        and not k.startswith("__progress")
+        and not k.startswith("__")
     }
     if not persistent_ids:
         return
@@ -114,9 +116,26 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
     if scene_uses_persistent:
         if state._hidden:
             state.restore_persistent(scene)
+        try:
+            from rendering_engine.easing import add_parallax
+            existing = getattr(state, "_parallax_updater", None)
+            if existing is None:
+                updater = add_parallax(scene, amplitude=0.03, period=18.0,
+                                       enable_zoom_breathing=False)
+                state._parallax_updater = updater
+        except Exception:
+            pass
     else:
         if not state._hidden:
             state.hide_persistent(scene)
+        try:
+            from rendering_engine.easing import remove_parallax
+            existing = getattr(state, "_parallax_updater", None)
+            if existing is not None:
+                remove_parallax(scene, existing)
+                state._parallax_updater = None
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -132,10 +151,18 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
 
     subtitle = data.get("title_card_subtitle", "")
     category = data.get("category", "")
+
+    from rendering_engine.branding import add_watermark, play_intro_card, play_outro_card
+    play_intro_card(scene, category)
+
     _play_title_card(scene, topic, subtitle, category)
 
     future_refs = _collect_future_refs(scenes)
     state = SceneState()
+    add_watermark(scene, state, category)
+
+    _add_persistent_topic_header(scene, state, topic, category)
+
     n = len(scenes)
 
     for i, sc in enumerate(scenes):
@@ -163,6 +190,7 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             play_subtitles_for_scene(
                 scene, narration, wait_time,
                 max_words=SUBTITLE_MAX_WORDS,
+                audio_path=sc.get("audio_path"),
             )
         elif wait_time > 0.01:
             scene.wait(wait_time)
@@ -174,6 +202,8 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
 
         if i < n - 1 and SCENE_GAP_SECONDS > 0:
             scene.wait(SCENE_GAP_SECONDS)
+
+    play_outro_card(scene, category, topic)
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +238,32 @@ def _clear_scene(scene: Any, state: SceneState, keep_ids: set[str]) -> None:
         for k in state.objects
         if k not in to_remove_keys
     }
-    orphans = [m for m in scene.mobjects if id(m) not in kept_mob_ids]
+
+    protected_ids = set()
+    try:
+        camera = getattr(scene, "camera", None)
+        if camera:
+            frame = getattr(camera, "frame", None)
+            if frame:
+                protected_ids.add(id(frame))
+            protected_ids.add(id(camera))
+    except Exception:
+        pass
+    for mob in scene.mobjects:
+        try:
+            z = mob.get_z_index() if hasattr(mob, "get_z_index") else 0
+            if z <= -90:
+                protected_ids.add(id(mob))
+        except Exception:
+            pass
+    for k in state.objects:
+        if k.startswith("__"):
+            protected_ids.add(id(state.objects[k]))
+
+    orphans = [
+        m for m in scene.mobjects
+        if id(m) not in kept_mob_ids and id(m) not in protected_ids
+    ]
     all_fade = to_fade + orphans
 
     if all_fade:
@@ -216,19 +271,20 @@ def _clear_scene(scene: Any, state: SceneState, keep_ids: set[str]) -> None:
         unique = []
         for m in all_fade:
             mid = id(m)
-            if mid not in seen:
+            if mid not in seen and mid not in protected_ids:
                 seen.add(mid)
                 unique.append(m)
-        scene.play(
-            *[FadeOut(m, shift=DOWN * 0.12) for m in unique],
-            run_time=SCENE_FADE_OUT_SECONDS,
-        )
+        if unique:
+            scene.play(
+                *[FadeOut(m, shift=DOWN * 0.12) for m in unique],
+                run_time=SCENE_FADE_OUT_SECONDS,
+            )
 
     for k in to_remove_keys:
         state.unregister(k)
 
     for mob in list(scene.mobjects):
-        if id(mob) not in kept_mob_ids:
+        if id(mob) not in kept_mob_ids and id(mob) not in protected_ids:
             scene.remove(mob)
 
 
@@ -252,6 +308,73 @@ def _reset_camera_if_needed(scene: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Persistent topic header (always visible at top)
+# ---------------------------------------------------------------------------
+
+_TOPIC_HEADER_KEY = "__topic_header"
+
+
+def _add_persistent_topic_header(
+    scene: Any, state: SceneState, topic: str, category: str = "",
+) -> None:
+    """Add a small persistent topic label at the top of the frame.
+
+    Anchored to the camera via updater so it stays put during parallax.
+    """
+    if not topic:
+        return
+
+    from manim import RoundedRectangle
+
+    header = Text(
+        topic[:80],
+        font_size=17,
+        color=WHITE,
+    )
+    header.set_opacity(0.96)
+    if header.width > 10:
+        header.set_width(10)
+
+    bg = RoundedRectangle(
+        width=header.width + 0.5,
+        height=header.height + 0.18,
+        corner_radius=0.06,
+        stroke_width=1.2,
+        stroke_color=CATEGORY_ACCENT.get(category, PRIMARY),
+        stroke_opacity=0.5,
+        fill_color="#0a0e18",
+        fill_opacity=0.82,
+    )
+    bg.move_to(header.get_center())
+    group = VGroup(bg, header)
+
+    camera = getattr(scene, "camera", None)
+    frame = getattr(camera, "frame", None)
+
+    def _anchor(mob):
+        try:
+            if frame is not None:
+                cx = frame.get_center()[0]
+                cy = frame.get_center()[1] + frame.get_height() / 2 - mob.height / 2 - 0.22
+                mob.move_to([cx, cy, 0])
+            else:
+                mob.to_edge(UP, buff=0.22)
+        except Exception:
+            pass
+
+    _anchor(group)
+    group.add_updater(_anchor)
+    group.set_z_index(30)
+    scene.add(group)
+
+    if state is not None:
+        try:
+            state.register(_TOPIC_HEADER_KEY, group)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Title card
 # ---------------------------------------------------------------------------
 
@@ -259,6 +382,13 @@ def _play_title_card(
     scene: Any, topic: str, subtitle_text: str = "", category: str = "",
 ) -> None:
     from manim import ApplyWave, Write
+
+    from rendering_engine.easing import (
+        add_parallax,
+        cubic_ease_in_out,
+        cubic_ease_out,
+        remove_parallax,
+    )
 
     accent = CATEGORY_ACCENT.get(category, PRIMARY)
 
@@ -283,12 +413,24 @@ def _play_title_card(
     glow.set_stroke(width=0)
     card.add_to_back(glow)
 
+    parallax = add_parallax(scene, amplitude=0.04, period=10.0)
+
     hold = max(0.1, TITLE_CARD_SECONDS - TITLE_FADE_IN - TITLE_FADE_OUT - 0.4)
-    scene.play(Write(title, run_time=TITLE_FADE_IN), FadeIn(glow, run_time=TITLE_FADE_IN))
-    scene.play(FadeIn(subtitle, shift=UP * 0.15), run_time=0.3)
+    scene.play(
+        Write(title, run_time=TITLE_FADE_IN, rate_func=cubic_ease_out),
+        FadeIn(glow, run_time=TITLE_FADE_IN, rate_func=cubic_ease_in_out),
+    )
+    scene.play(
+        FadeIn(subtitle, shift=UP * 0.15, rate_func=cubic_ease_out),
+        run_time=0.35,
+    )
     try:
         scene.play(ApplyWave(title, amplitude=0.06, run_time=0.4))
     except Exception:
         pass
     scene.wait(hold)
-    scene.play(FadeOut(card, shift=UP * 0.15), run_time=TITLE_FADE_OUT)
+    scene.play(
+        FadeOut(card, shift=UP * 0.15, rate_func=cubic_ease_in_out),
+        run_time=TITLE_FADE_OUT,
+    )
+    remove_parallax(scene, parallax)

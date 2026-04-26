@@ -81,18 +81,37 @@ def ensure_retention_beats(
 ) -> EnrichedVideoScript:
     """Enrich the script with visual content where screens would go dormant.
 
-    Two strategies:
+    Three strategies:
     1. If a scene has NO persistent visual at all, inject a ``show_text_block``
        with the scene title and a key narration phrase so there's always
        something on screen.
     2. If a scene has persistent visuals but a long idle gap, inject a subtle
        ``pulse_element`` on the last referenced object.
+    3. Every ``PATTERN_INTERRUPT_INTERVAL`` seconds of cumulative narration
+       time, inject a small ``zoom_punch`` or ``flash_cut`` to reset attention.
 
     Modifies scenes in-place and returns the same script.
     """
-    from models_semantic import ShowTextBlock, PulseElement
+    from models_semantic import (
+        FlashCut,
+        PulseElement,
+        ShowTextBlock,
+        ZoomPunch,
+    )
 
-    for scene in script.scenes:
+    try:
+        from config import (
+            ENABLE_PATTERN_INTERRUPTS,
+            PATTERN_INTERRUPT_INTERVAL,
+        )
+    except Exception:
+        ENABLE_PATTERN_INTERRUPTS = True
+        PATTERN_INTERRUPT_INTERVAL = 35.0
+
+    cumulative_time = 0.0
+    last_interrupt_at = 0.0
+
+    for scene_idx, scene in enumerate(script.scenes):
         raw_actions = [a.model_dump(by_alias=True) for a in scene.actions]
 
         if not _has_persistent_visual(raw_actions):
@@ -107,22 +126,38 @@ def ensure_retention_beats(
                 "Retention: injected show_text_block in scene %s (no persistent visual)",
                 scene.scene_id,
             )
-            continue
+            raw_actions = [a.model_dump(by_alias=True) for a in scene.actions]
 
         audio_dur = scene.audio_duration or scene.estimated_duration
         visual_dur = _estimate_visual_seconds(raw_actions)
         idle_gap = audio_dur - visual_dur
 
-        if idle_gap <= max_idle_seconds:
-            continue
+        if idle_gap > max_idle_seconds:
+            pulseable = _find_pulseable_id(raw_actions)
+            if pulseable:
+                beat = PulseElement(target_id=pulseable, intensity=1.08, duration=0.35)
+                scene.actions.append(beat)
+                logger.debug(
+                    "Retention beat: added pulse on %r in scene %s (idle gap %.1fs)",
+                    pulseable, scene.scene_id, idle_gap,
+                )
 
-        pulseable = _find_pulseable_id(raw_actions)
-        if pulseable:
-            beat = PulseElement(target_id=pulseable, intensity=1.08, duration=0.35)
-            scene.actions.append(beat)
-            logger.debug(
-                "Retention beat: added pulse on %r in scene %s (idle gap %.1fs)",
-                pulseable, scene.scene_id, idle_gap,
+        cumulative_time += audio_dur
+        if (
+            ENABLE_PATTERN_INTERRUPTS
+            and scene_idx > 0
+            and cumulative_time - last_interrupt_at >= PATTERN_INTERRUPT_INTERVAL
+        ):
+            target = _find_pulseable_id(raw_actions)
+            if target:
+                interrupt = ZoomPunch(target_id=target, intensity=0.16, duration=0.45)
+            else:
+                interrupt = FlashCut(color="white", duration=0.06)
+            scene.actions.insert(0, interrupt)
+            last_interrupt_at = cumulative_time
+            logger.info(
+                "Pattern interrupt: %s injected at start of scene %s (t=%.1fs)",
+                interrupt.type, scene.scene_id, cumulative_time,
             )
 
     return script
