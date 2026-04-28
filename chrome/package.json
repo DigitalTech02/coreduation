@@ -4,10 +4,10 @@
   "description": "Remotion-based chrome (intro/outro/lower-thirds/CTAs) for CoreDuation videos.",
   "private": true,
   "scripts": {
-    "build:intro": "remotion render src/index.ts Intro out/intro.mp4 --props=./props.json",
-    "build:outro": "remotion render src/index.ts Outro out/outro.mp4 --props=./props.json",
-    "build:lower-third": "remotion render src/index.ts LowerThird out/lower-third.mp4 --props=./props.json",
-    "studio": "remotion studio src/index.ts"
+    "build:intro": "remotion render src/index.tsx Intro out/intro.mp4 --props=./props.json",
+    "build:outro": "remotion render src/index.tsx Outro out/outro.mp4 --props=./props.json",
+    "build:lower-third": "remotion render src/index.tsx LowerThird out/lower-third.mp4 --props=./props.json",
+    "studio": "remotion studio src/index.tsx"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.0",

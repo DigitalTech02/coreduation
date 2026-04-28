@@ -29,6 +29,8 @@ from rendering_engine.styles import (
     BG_COLOR,
     CONNECTION_STROKE_WIDTH,
     CONNECTION_TIP_SCALE,
+    DIAGRAM_ZONE_BOTTOM,
+    DIAGRAM_ZONE_TOP,
     FADE_DURATION,
     GLOW_OPACITY,
     GLOW_SCALE,
@@ -39,6 +41,10 @@ from rendering_engine.styles import (
     NODE_HEIGHT,
     NODE_STROKE_WIDTH,
     NODE_WIDTH,
+    SAFE_AREA_BOTTOM,
+    SAFE_AREA_LEFT,
+    SAFE_AREA_RIGHT,
+    SAFE_AREA_TOP,
     SUBLABEL_FONT_SIZE,
     WHITE,
     apply_sheen,
@@ -74,12 +80,12 @@ _POSITION_MAP = {
     "left": (-4.5, 0, 0),
     "right": (4.5, 0, 0),
     "center": (0, 0, 0),
-    "top": (0, 2.5, 0),
-    "bottom": (0, -2.5, 0),
-    "top_left": (-4.5, 2.5, 0),
-    "top_right": (4.5, 2.5, 0),
-    "bottom_left": (-4.5, -2.5, 0),
-    "bottom_right": (4.5, -2.5, 0),
+    "top": (0, 1.8, 0),
+    "bottom": (0, -1.4, 0),
+    "top_left": (-4.5, 1.8, 0),
+    "top_right": (4.5, 1.8, 0),
+    "bottom_left": (-4.5, -1.4, 0),
+    "bottom_right": (4.5, -1.4, 0),
 }
 
 
@@ -155,23 +161,40 @@ def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     shape = _build_node_shape(action.icon_type.value, default_color)
     shape.move_to(pos)
 
-    label = Text(action.label, font_size=LABEL_FONT_SIZE, color=default_color)
+    label_text = action.label[:18] + "…" if len(action.label) > 18 else action.label
+    label = Text(label_text, font_size=LABEL_FONT_SIZE, color=WHITE)
+    label.set_opacity(1.0)
     max_label_w = NODE_WIDTH - 0.25
     if label.width > max_label_w:
         label.set_width(max_label_w)
     label.move_to(shape.get_center())
 
-    parts = [shape, label]
+    text_parts = [label]
 
     if action.sublabel:
-        sub = Text(action.sublabel, font_size=SUBLABEL_FONT_SIZE, color=WHITE)
-        sub.set_opacity(0.75)
+        sublabel_text = action.sublabel[:22] + "…" if len(action.sublabel) > 22 else action.sublabel
+        sub = Text(sublabel_text, font_size=SUBLABEL_FONT_SIZE, color=WHITE)
+        sub.set_opacity(0.85)
         if sub.width > max_label_w:
             sub.set_width(max_label_w)
         sub.next_to(label, DOWN, buff=0.1)
-        parts.append(sub)
+        text_parts.append(sub)
 
-    group = VGroup(*parts)
+    # Dark pill behind text for readability over sheen
+    text_group = VGroup(*text_parts)
+    if text_group.width + 0.25 > shape.get_width():
+        shape.stretch_to_fit_width(text_group.width + 0.3)
+    text_bg = RoundedRectangle(
+        width=text_group.width + 0.2,
+        height=text_group.height + 0.12,
+        corner_radius=0.06,
+        stroke_width=0,
+        fill_color=BG_COLOR,
+        fill_opacity=0.55,
+    )
+    text_bg.move_to(text_group.get_center())
+
+    group = VGroup(shape, text_bg, *text_parts)
     state.register(action.id, group)
     scene.play(FadeIn(group), run_time=FADE_DURATION)
 
@@ -216,7 +239,11 @@ def render_create_connection(scene: ManimScene, state: SceneState, action) -> No
 
     if action.label:
         mid = line.get_center()
-        lbl = Text(action.label, font_size=SUBLABEL_FONT_SIZE - 2, color=WHITE)
+        conn_label_text = action.label[:30] + "…" if len(action.label) > 30 else action.label
+        lbl = Text(conn_label_text, font_size=SUBLABEL_FONT_SIZE - 2, color=WHITE)
+        max_conn_label_w = 3.0
+        if lbl.width > max_conn_label_w:
+            lbl.set_width(max_conn_label_w)
         lbl_bg = RoundedRectangle(
             width=lbl.width + 0.2, height=lbl.height + 0.1,
             corner_radius=0.05, stroke_width=0,
@@ -234,10 +261,41 @@ def render_create_connection(scene: ManimScene, state: SceneState, action) -> No
 
 
 def render_update_node(scene: ManimScene, state: SceneState, action) -> None:
-    """Update a node's appearance with a glow highlight."""
+    """Update a node's appearance: label/sublabel text and glow highlight."""
+    from manim import Transform
+
     mob = state.get(action.id)
     if mob is None:
         return
+
+    # Update label / sublabel text if provided
+    if action.label or action.sublabel:
+        # Find existing text submobjects (skip shape at index 0 and text_bg at index 1)
+        text_subs = [sub for sub in mob if isinstance(sub, Text)]
+        if action.label and len(text_subs) >= 1:
+            old_label = text_subs[0]
+            new_label = Text(
+                action.label[:18] + "…" if len(action.label) > 18 else action.label,
+                font_size=LABEL_FONT_SIZE, color=WHITE,
+            )
+            new_label.set_opacity(1.0)
+            max_label_w = NODE_WIDTH - 0.25
+            if new_label.width > max_label_w:
+                new_label.set_width(max_label_w)
+            new_label.move_to(old_label.get_center())
+            scene.play(Transform(old_label, new_label), run_time=0.4)
+        if action.sublabel and len(text_subs) >= 2:
+            old_sub = text_subs[1]
+            new_sub = Text(
+                action.sublabel[:22] + "…" if len(action.sublabel) > 22 else action.sublabel,
+                font_size=SUBLABEL_FONT_SIZE, color=WHITE,
+            )
+            new_sub.set_opacity(0.85)
+            max_label_w = NODE_WIDTH - 0.25
+            if new_sub.width > max_label_w:
+                new_sub.set_width(max_label_w)
+            new_sub.move_to(old_sub.get_center())
+            scene.play(Transform(old_sub, new_sub), run_time=0.4)
 
     if action.highlight_color:
         color = resolve_color(action.highlight_color)
@@ -312,6 +370,15 @@ def render_create_topology(scene: ManimScene, state: SceneState, action) -> None
         render_create_connection(scene, state, conn)
 
 
+def _clamp_positions(positions: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Clamp layout positions to the diagram zone (inside safe area)."""
+    return [
+        (max(SAFE_AREA_LEFT + 0.5, min(SAFE_AREA_RIGHT - 0.5, x)),
+         max(DIAGRAM_ZONE_BOTTOM + 0.3, min(DIAGRAM_ZONE_TOP - 0.3, y)))
+        for x, y in positions
+    ]
+
+
 def _compute_layout_positions(
     layout: str, n: int, center_id: str | None, nodes
 ) -> list[tuple[float, float]]:
@@ -327,21 +394,21 @@ def _compute_layout_positions(
         if center_id:
             node_order = [center_id] + [nd.id for nd in outer]
             idx_map = {nid: i for i, nid in enumerate(node_order)}
-            return [positions[idx_map.get(nd.id, i)] for i, nd in enumerate(nodes)]
-        return positions
+            return _clamp_positions([positions[idx_map.get(nd.id, i)] for i, nd in enumerate(nodes)])
+        return _clamp_positions(positions)
 
     if layout == "ring":
         radius = min(3.0, 2.0 + 0.15 * max(n - 4, 0))
-        return [
+        return _clamp_positions([
             (radius * math.cos(2 * math.pi * i / n + math.pi / 2),
              radius * math.sin(2 * math.pi * i / n + math.pi / 2))
             for i in range(n)
-        ]
+        ])
 
     if layout == "bus":
         spacing = min(3.0, 10.0 / max(n - 1, 1))
         start_x = -(n - 1) * spacing / 2
-        return [(start_x + i * spacing, 0.0) for i in range(n)]
+        return _clamp_positions([(start_x + i * spacing, 0.0) for i in range(n)])
 
     if layout == "tree":
         positions = [(0.0, 2.5)]
@@ -357,7 +424,7 @@ def _compute_layout_positions(
                 positions.append((x, 2.5 - level * 1.8))
             level_start += count
             level += 1
-        return positions[:n]
+        return _clamp_positions(positions[:n])
 
     if layout == "mesh":
         cols = math.ceil(math.sqrt(n))
@@ -366,14 +433,14 @@ def _compute_layout_positions(
         row_spacing = min(2.5, 6.0 / max(rows, 1))
         x_offset = -(cols - 1) * col_spacing / 2
         y_offset = (rows - 1) * row_spacing / 2
-        return [
+        return _clamp_positions([
             (x_offset + (i % cols) * col_spacing,
              y_offset - (i // cols) * row_spacing)
             for i in range(n)
-        ]
+        ])
 
     spacing = min(2.5, 10.0 / max(n - 1, 1))
-    return [(i * spacing - (n - 1) * spacing / 2, 0) for i in range(n)]
+    return _clamp_positions([(i * spacing - (n - 1) * spacing / 2, 0) for i in range(n)])
 
 
 def _compute_topology_connections(

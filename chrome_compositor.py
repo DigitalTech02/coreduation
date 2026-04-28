@@ -92,7 +92,7 @@ def render_chrome_clip(
         npx,
         "remotion",
         "render",
-        "src/index.ts",
+        "src/index.tsx",
         composition_id,
         str(out_path.resolve()),
         "--props=" + json.dumps(props),

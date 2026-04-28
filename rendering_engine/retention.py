@@ -235,47 +235,41 @@ def render_update_progress(scene: "ManimScene", state: "SceneState", action) -> 
 _emphasis_counter = 0
 
 
-def _find_vacant_y(state: "SceneState") -> float:
-    """Find the best Y position for overlay text, avoiding existing visible objects.
-
-    Screen ranges roughly y = -3.8 (bottom) to y = 3.5 (top).
-    Returns the Y center for the emphasis text.
-    """
-    all_mobs = [
-        m for k, m in state.objects.items()
-        if not k.startswith("__progress") and not state.is_hidden(k)
-    ]
-    if not all_mobs:
-        return 0.0
-
-    tops = [m.get_top()[1] for m in all_mobs]
-    bots = [m.get_bottom()[1] for m in all_mobs]
-    content_top = max(tops)
-    content_bot = min(bots)
-
-    space_above = 3.5 - content_top
-    space_below = content_bot - (-3.5)
-
-    if space_above >= 1.2:
-        return content_top + space_above / 2
-    if space_below >= 1.2:
-        return content_bot - space_below / 2
-    return 3.0
-
-
 def render_emphasize_text(scene: "ManimScene", state: "SceneState", action) -> None:
     from manim import ApplyWave, Circumscribe, GrowFromCenter, Indicate, Wiggle
 
     global _emphasis_counter
     _emphasis_counter += 1
 
-    txt = Text(
-        action.text, font_size=EMPHASIS_FONT_SIZE, color=ACCENT,
-    )
-    if txt.width > 12:
-        txt.set_width(12)
+    # When no persistent objects are visible (pure presentation scene),
+    # clear previous text/bullets before placing emphasis text.
+    if not state.has_persistent() or state._hidden:
+        state.clear_presentation(scene)
 
-    target_y = _find_vacant_y(state)
+    # Shrink emphasis text when persistent objects occupy the screen
+    font = EMPHASIS_FONT_SIZE
+    max_w = 10.0
+    if state.has_persistent():
+        font = max(24, int(EMPHASIS_FONT_SIZE * 0.65))
+        max_w = 7.0
+
+    txt = Text(
+        action.text, font_size=font, color=ACCENT,
+    )
+    if txt.width > max_w:
+        txt.set_width(max_w)
+
+    est_height = txt.height + 0.4
+    target_y = state.find_vacant_y(height=est_height)
+
+    # If the estimated bbox overlaps existing content, shrink and re-find
+    from rendering_engine.engine import BBox
+    est_bbox = BBox(-max_w / 2, max_w / 2, target_y - est_height / 2, target_y + est_height / 2)
+    if state.overlaps_any(est_bbox, margin=0.1):
+        txt.scale(0.7)
+        est_height = txt.height + 0.4
+        target_y = state.find_vacant_y(height=est_height)
+
     txt.move_to([0, target_y, 0])
 
     if action.emphasis_type == "pop":
@@ -300,7 +294,7 @@ def render_emphasize_text(scene: "ManimScene", state: "SceneState", action) -> N
     scene.wait(max(0.1, action.duration * 0.2))
 
     import uuid
-    key = f"__emphasis_{uuid.uuid4().hex[:8]}__"
+    key = f"emphasis_{uuid.uuid4().hex[:8]}"
     state.register(key, txt, category="presentation")
 
 
@@ -356,13 +350,13 @@ def render_add_callout(scene: "ManimScene", state: "SceneState", action) -> None
 
     pos = action.position.lower()
     if pos == "left":
-        callout.next_to(mob, LEFT, buff=0.3)
+        callout.next_to(mob, LEFT, buff=0.6)
     elif pos == "right":
-        callout.next_to(mob, RIGHT, buff=0.3)
+        callout.next_to(mob, RIGHT, buff=0.6)
     elif pos == "below":
-        callout.next_to(mob, DOWN, buff=0.3)
+        callout.next_to(mob, DOWN, buff=0.6)
     else:
-        callout.next_to(mob, UP, buff=0.3)
+        callout.next_to(mob, UP, buff=0.6)
 
     tip = Line(
         callout.get_edge_center(-callout.get_center() + mob.get_center()),

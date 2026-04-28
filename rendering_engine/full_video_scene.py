@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from manim import DOWN, ORIGIN, UP, FadeIn, FadeOut, Text, VGroup, WHITE
+from manim import DOWN, LEFT, ORIGIN, RIGHT, UP, Dot, FadeIn, FadeOut, Line, Text, VGroup, WHITE
 
 from rendering_engine.engine import SceneState, _dispatch_action, _rebuild_action
 from rendering_engine.styles import (
@@ -162,6 +162,7 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
     add_watermark(scene, state, category)
 
     _add_persistent_topic_header(scene, state, topic, category)
+    _add_corner_decorations(scene, state, category)
 
     n = len(scenes)
 
@@ -213,22 +214,40 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
 def _clear_scene(scene: Any, state: SceneState, keep_ids: set[str]) -> None:
     """Fade-out objects at end of a scene, preserving those needed later.
 
-    *keep_ids* contains IDs referenced by future scenes.  If ANY persistent
-    object's ID appears in *keep_ids*, we keep **all** persistent objects
-    (nodes, connections, regions) so the whole topology stays coherent.
-    Presentation objects and orphaned mobjects are always removed.
+    *keep_ids* contains IDs referenced by future scenes.  Instead of keeping
+    ALL persistent objects when any is needed, we now selectively keep only
+    the specific objects in *keep_ids* plus connections whose endpoints are
+    in *keep_ids* (to maintain topology coherence).  Internal ``__`` prefixed
+    objects (header, watermark) are always kept.
     """
-    any_persistent_needed = any(
-        state._categories.get(k) == "persistent" and k in keep_ids
-        for k in state.objects
-    )
+    # Build set of persistent IDs to keep: those explicitly referenced +
+    # connections whose endpoints are both in keep_ids
+    keep_persistent: set[str] = set()
+    for k in list(state.objects):
+        if k.startswith("__"):
+            continue
+        cat = state._categories.get(k, "persistent")
+        if cat != "persistent":
+            continue
+        if k in keep_ids:
+            keep_persistent.add(k)
+        elif k.startswith("conn_"):
+            # Keep connections whose endpoint node IDs are in keep_ids
+            parts = k.split("_", 3)  # conn_<from>_<to> or conn_<from>_<to>__N
+            if len(parts) >= 3:
+                from_id = parts[1]
+                to_id = parts[2].split("__")[0]
+                if from_id in keep_ids and to_id in keep_ids:
+                    keep_persistent.add(k)
 
     to_fade: list = []
     to_remove_keys: list[str] = []
 
     for k, mob in list(state.objects.items()):
+        if k.startswith("__"):
+            continue  # always keep internal objects
         cat = state._categories.get(k, "persistent")
-        if cat == "persistent" and any_persistent_needed:
+        if cat == "persistent" and k in keep_persistent:
             continue
         to_fade.append(mob)
         to_remove_keys.append(k)
@@ -370,6 +389,71 @@ def _add_persistent_topic_header(
     if state is not None:
         try:
             state.register(_TOPIC_HEADER_KEY, group)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Corner decorations
+# ---------------------------------------------------------------------------
+
+_CORNER_DECO_KEY = "__corner_deco"
+
+
+def _add_corner_decorations(scene: Any, state: SceneState, category: str = "") -> None:
+    """Place subtle accent dots (top-right) and bracket lines (bottom-left).
+
+    Anchored to camera so they stay in place during parallax.
+    """
+    accent = CATEGORY_ACCENT.get(category, PRIMARY)
+
+    # Top-right accent dots
+    dots = VGroup()
+    for dx, dy in [(0, 0), (0.18, 0), (0.36, 0)]:
+        d = Dot(radius=0.035, color=accent)
+        d.set_opacity(0.35)
+        d.shift(RIGHT * dx + UP * dy)
+        dots.add(d)
+
+    # Bottom-left bracket lines
+    bracket = VGroup()
+    vline = Line(UP * 0.3, DOWN * 0.0, color=accent, stroke_width=1.5)
+    vline.set_opacity(0.3)
+    hline = Line(LEFT * 0.0, RIGHT * 0.3, color=accent, stroke_width=1.5)
+    hline.set_opacity(0.3)
+    hline.move_to(vline.get_bottom(), aligned_edge=LEFT)
+    bracket.add(vline, hline)
+
+    group = VGroup(dots, bracket)
+
+    camera = getattr(scene, "camera", None)
+    frame = getattr(camera, "frame", None)
+
+    def _anchor(mob):
+        try:
+            if frame is not None:
+                cx = frame.get_center()[0]
+                cy = frame.get_center()[1]
+                hw = frame.get_width() / 2
+                hh = frame.get_height() / 2
+                # dots → top-right
+                dots.move_to([cx + hw - 0.55, cy + hh - 0.45, 0])
+                # bracket → bottom-left
+                bracket.move_to([cx - hw + 0.45, cy - hh + 0.45, 0])
+            else:
+                dots.move_to([6.2, 3.5, 0])
+                bracket.move_to([-6.2, -3.5, 0])
+        except Exception:
+            pass
+
+    _anchor(group)
+    group.add_updater(_anchor)
+    group.set_z_index(25)
+    scene.add(group)
+
+    if state is not None:
+        try:
+            state.register(_CORNER_DECO_KEY, group)
         except Exception:
             pass
 

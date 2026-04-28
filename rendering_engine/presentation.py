@@ -43,6 +43,8 @@ from rendering_engine.styles import (
     MEDIUM_PAUSE,
     MUTED,
     PRIMARY,
+    SAFE_AREA_BOTTOM,
+    SAFE_AREA_TOP,
     SECONDARY,
     SHADOW_COLOR,
     SHADOW_OFFSET,
@@ -116,6 +118,18 @@ def _with_shadow(content: VGroup) -> VGroup:
     return VGroup(shadow, content)
 
 
+def _clamp_to_safe_area(group: VGroup) -> None:
+    """Clamp a content group so its top stays below the topic header and
+    scale down if it exceeds the safe area height."""
+    g_top = group.get_top()[1]
+    if g_top > SAFE_AREA_TOP:
+        group.shift([0, SAFE_AREA_TOP - g_top, 0])
+    safe_height = SAFE_AREA_TOP - SAFE_AREA_BOTTOM
+    if group.height > safe_height:
+        group.scale(safe_height / group.height)
+        group.move_to([group.get_center()[0], (SAFE_AREA_TOP + SAFE_AREA_BOTTOM) / 2, 0])
+
+
 # ---------------------------------------------------------------------------
 # show_text_block
 # ---------------------------------------------------------------------------
@@ -142,6 +156,7 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
 
     content = VGroup(*parts).arrange(DOWN, buff=0.4)
     group = _with_shadow(content)
+    _clamp_to_safe_area(group)
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
@@ -176,6 +191,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
 
     content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
     group = _with_shadow(content)
+    _clamp_to_safe_area(group)
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:
@@ -196,6 +212,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
 
 _CODE_MAX_HEIGHT = 5.2
 _CODE_MAX_WIDTH = 11.0
+_CODE_LINE_MAX_WIDTH = 10.5
 _CODE_SCROLL_SPEED = 1.6
 
 
@@ -216,6 +233,8 @@ def _build_code_lines(lines: list[str], max_h: float):
     for line_text in lines:
         lm = Text(line_text, font_size=font_size, font=FONT_MONO, color=WHITE)
         lm.set_opacity(0.88)
+        if lm.width > _CODE_LINE_MAX_WIDTH:
+            lm.set_width(_CODE_LINE_MAX_WIDTH)
         code_mobs.append(lm)
 
     buff = 0.10 if n > 12 else 0.12
@@ -267,6 +286,7 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
         parts.append(VGroup(bg, code_group))
         content = VGroup(*parts).arrange(DOWN, buff=0.35)
         group = _with_shadow(content)
+        _clamp_to_safe_area(group)
         state.register(f"code_{action.title or 'block'}", group)
 
         if title_mob:
@@ -303,6 +323,7 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
 
         content = VGroup(*parts).arrange(DOWN, buff=0.35)
         group = _with_shadow(content)
+        _clamp_to_safe_area(group)
         state.register(f"code_{action.title or 'block'}", group)
 
         if title_mob:
@@ -316,10 +337,11 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
             scene.play(*[FadeIn(lm) for lm in code_lines], run_time=0.4)
 
     if action.highlight_lines:
+        scene.wait(0.1)
         for line_idx in action.highlight_lines:
             if 0 <= line_idx < len(code_lines):
                 hl = SurroundingRectangle(
-                    code_lines[line_idx], color=HIGHLIGHT, buff=0.05,
+                    code_lines[line_idx], color=HIGHLIGHT, buff=0.08,
                 )
                 scene.play(FadeIn(hl), run_time=0.3)
                 scene.wait(MEDIUM_PAUSE)
@@ -363,6 +385,7 @@ def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None
 
     content = VGroup(*parts).arrange(DOWN, buff=0.5)
     group = _with_shadow(content)
+    _clamp_to_safe_area(group)
     state.register(f"comparison_{action.title or 'cmp'}", group)
 
     if title_mob:

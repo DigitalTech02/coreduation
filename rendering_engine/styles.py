@@ -214,7 +214,7 @@ SHADOW_OFFSET = (0.07, -0.07)
 GLOW_SCALE = 1.35
 GLOW_OPACITY = 0.14
 
-SHEEN_FACTOR = 0.3
+SHEEN_FACTOR = 0.15
 SHEEN_DIRECTION = RIGHT
 
 
@@ -288,6 +288,20 @@ def make_glow(mobject, color=None, scale: float = GLOW_SCALE, opacity: float = G
     glow.set_fill(opacity=opacity)
     glow.set_stroke(width=0)
     return VGroup(glow, mobject)
+
+
+# ---------------------------------------------------------------------------
+# Safe area — usable rendering area excluding topic header & subtitle zones
+# ---------------------------------------------------------------------------
+SAFE_AREA_TOP = 2.9       # Below topic header (~3.5)
+SAFE_AREA_BOTTOM = -2.5   # Above subtitle area (~-2.85)
+SAFE_AREA_LEFT = -6.5
+SAFE_AREA_RIGHT = 6.5
+
+# Diagram zone — constrains persistent objects (nodes, regions) to the
+# middle 70% of the safe area, reserving top/bottom 15% for titles/text.
+DIAGRAM_ZONE_TOP = 2.1
+DIAGRAM_ZONE_BOTTOM = -1.7
 
 
 def apply_sheen(mobject, factor: float = SHEEN_FACTOR, direction=None):

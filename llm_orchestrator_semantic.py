@@ -8,6 +8,7 @@ Specialty prompts are loaded from ``prompts/`` based on the ``--category`` flag.
 """
 
 import hashlib
+import json as _json
 import logging
 import os
 
@@ -15,6 +16,21 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from models_semantic import EnrichedVideoScript, SemanticVideoScript
+
+# Valid action types accepted by the rendering engine.  Used to strip
+# hallucinated action types before Pydantic validation.
+_VALID_ACTION_TYPES = frozenset({
+    "create_node", "create_connection", "update_node", "remove_element",
+    "create_topology", "send_packet", "send_broadcast",
+    "show_sequence_diagram", "show_layer_stack", "show_header_breakdown",
+    "show_table", "show_math", "show_text_block", "show_code_block",
+    "show_comparison", "show_bullet_list", "create_cloud_region",
+    "create_cloud_service", "show_data_flow", "pulse_element",
+    "focus_camera", "reset_camera", "show_progress", "update_progress",
+    "emphasize_text", "shake_element", "dim_except", "restore_opacity",
+    "add_callout", "scene_transition", "show_image", "flash_cut",
+    "zoom_punch", "glitch_transition", "show_chart",
+})
 
 load_dotenv()
 
@@ -39,6 +55,28 @@ def _strip_json_fences(content: str) -> str:
             lines = lines[:-1]
         text = "\n".join(lines)
     return text.strip()
+
+
+def _sanitize_script_dict(data: dict) -> dict:
+    """Remove actions with unknown ``type`` so Pydantic validation doesn't fail.
+
+    The LLM occasionally hallucinates action types (e.g. ``overlay``, ``annotate``).
+    Rather than crashing, we strip them and log a warning.
+    """
+    for scene in data.get("scenes", []):
+        original = scene.get("actions", [])
+        cleaned = []
+        for act in original:
+            atype = act.get("type", "")
+            if atype in _VALID_ACTION_TYPES:
+                cleaned.append(act)
+            else:
+                logger.warning(
+                    "Stripping unknown action type '%s' from scene '%s'",
+                    atype, scene.get("scene_id", "?"),
+                )
+        scene["actions"] = cleaned
+    return data
 
 
 def generate_semantic_script(
@@ -93,7 +131,7 @@ def generate_semantic_script(
         cached = cached_llm_script(topic, category, prompt_hash, model)
         if cached:
             try:
-                llm_script = SemanticVideoScript.model_validate(cached)
+                llm_script = SemanticVideoScript.model_validate(_sanitize_script_dict(cached))
             except Exception as e:
                 logger.warning("Cached LLM script failed validation, regenerating: %s", e)
                 llm_script = None
@@ -115,7 +153,9 @@ def generate_semantic_script(
             raise ValueError("LLM returned empty content")
 
         try:
-            llm_script = SemanticVideoScript.model_validate_json(_strip_json_fences(raw))
+            raw_dict = _json.loads(_strip_json_fences(raw))
+            raw_dict = _sanitize_script_dict(raw_dict)
+            llm_script = SemanticVideoScript.model_validate(raw_dict)
         except Exception as e:
             logger.error("Failed to parse semantic script JSON: %s", e)
             logger.debug("Raw response (first 2000 chars): %s", raw[:2000])

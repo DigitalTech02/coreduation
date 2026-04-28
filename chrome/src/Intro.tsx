@@ -43,7 +43,7 @@ export const Intro: React.FC<Props> = ({channelName, tagline, accent}) => {
           boxShadow: `0 0 80px ${accent}55`,
         }}
       >
-        CD
+        DT2
       </div>
       <div
         style={{

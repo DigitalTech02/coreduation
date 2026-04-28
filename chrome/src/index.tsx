@@ -1,3 +1,4 @@
+import React from 'react';
 import {Composition, registerRoot} from 'remotion';
 import {Intro} from './Intro';
 import {Outro} from './Outro';

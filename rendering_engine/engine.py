@@ -9,13 +9,67 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from manim import FadeOut, VGroup
 
 from models_semantic import EnrichedScene, EnrichedVideoScript
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Spatial bounding box
+# ---------------------------------------------------------------------------
+
+class BBox(NamedTuple):
+    """Axis-aligned bounding box: left, right, bottom, top."""
+
+    left: float
+    right: float
+    bottom: float
+    top: float
+
+    @property
+    def width(self) -> float:
+        return self.right - self.left
+
+    @property
+    def height(self) -> float:
+        return self.top - self.bottom
+
+    @property
+    def center_x(self) -> float:
+        return (self.left + self.right) / 2
+
+    @property
+    def center_y(self) -> float:
+        return (self.bottom + self.top) / 2
+
+    def overlaps(self, other: BBox, margin: float = 0.0) -> bool:
+        """True if this bbox overlaps *other* (with optional margin)."""
+        return not (
+            self.right + margin < other.left
+            or other.right + margin < self.left
+            or self.top + margin < other.bottom
+            or other.top + margin < self.bottom
+        )
+
+    def contains(self, other: BBox) -> bool:
+        return (
+            self.left <= other.left
+            and self.right >= other.right
+            and self.bottom <= other.bottom
+            and self.top >= other.top
+        )
+
+    def union(self, other: BBox) -> BBox:
+        return BBox(
+            min(self.left, other.left),
+            max(self.right, other.right),
+            min(self.bottom, other.bottom),
+            max(self.top, other.top),
+        )
 
 OUTPUT_DIR = Path("output/video")
 MANIM_QUALITY = os.getenv("MANIM_QUALITY", "m")
@@ -57,17 +111,33 @@ class SceneState:
     - ``"presentation"`` — full-screen slide content (text blocks, tables,
       bullet lists, diagrams).  Auto-cleared before the next presentation
       action so they don't pile up.
+
+    Includes a **spatial registry** that caches bounding boxes and supports
+    overlap queries, vacant-space searches, and parent/child containment.
     """
 
     def __init__(self) -> None:
         self.objects: dict[str, Any] = {}
         self._categories: dict[str, str] = {}
         self._hidden: set[str] = set()
+        # --- Spatial registry ---
+        self._bounds: dict[str, BBox] = {}
+        self._parents: dict[str, str] = {}        # child_id → parent_id
+        self._children: dict[str, list[str]] = {}  # parent_id → [child_ids]
 
-    def register(self, obj_id: str, mobject, category: str = "persistent") -> None:
+    # -- registration ------------------------------------------------------
+
+    def register(self, obj_id: str, mobject, category: str = "persistent",
+                 *, parent_id: str | None = None) -> None:
         self.objects[obj_id] = mobject
         self._categories[obj_id] = category
         self._hidden.discard(obj_id)
+        # Spatial: cache bbox
+        self._bounds[obj_id] = self._compute_bbox(mobject)
+        # Containment hierarchy
+        if parent_id:
+            self._parents[obj_id] = parent_id
+            self._children.setdefault(parent_id, []).append(obj_id)
 
     def get(self, obj_id: str):
         return self.objects.get(obj_id)
@@ -79,11 +149,152 @@ class SceneState:
         self.objects.pop(obj_id, None)
         self._categories.pop(obj_id, None)
         self._hidden.discard(obj_id)
+        self._bounds.pop(obj_id, None)
+        # Clean parent/child links
+        parent = self._parents.pop(obj_id, None)
+        if parent and parent in self._children:
+            children = self._children[parent]
+            if obj_id in children:
+                children.remove(obj_id)
+        for child_id in self._children.pop(obj_id, []):
+            self._parents.pop(child_id, None)
 
     def clear(self) -> None:
         self.objects.clear()
         self._categories.clear()
         self._hidden.clear()
+        self._bounds.clear()
+        self._parents.clear()
+        self._children.clear()
+
+    # -- spatial helpers ---------------------------------------------------
+
+    @staticmethod
+    def _compute_bbox(mobject) -> BBox:
+        """Extract an axis-aligned bounding box from a Manim mobject."""
+        return BBox(
+            left=float(mobject.get_left()[0]),
+            right=float(mobject.get_right()[0]),
+            bottom=float(mobject.get_bottom()[1]),
+            top=float(mobject.get_top()[1]),
+        )
+
+    def refresh_bounds(self, obj_id: str) -> None:
+        """Re-compute cached bbox after an object moves/resizes."""
+        mob = self.objects.get(obj_id)
+        if mob is not None:
+            self._bounds[obj_id] = self._compute_bbox(mob)
+
+    def refresh_all_bounds(self) -> None:
+        """Re-compute all cached bboxes (call after batch moves)."""
+        for obj_id, mob in self.objects.items():
+            self._bounds[obj_id] = self._compute_bbox(mob)
+
+    def bbox_of(self, obj_id: str) -> BBox | None:
+        """Return cached bbox for a single object."""
+        return self._bounds.get(obj_id)
+
+    def visible_bounds(self, category: str | None = None,
+                       exclude_internal: bool = True) -> list[tuple[str, BBox]]:
+        """Return (id, bbox) pairs for all visible (non-hidden) objects."""
+        results = []
+        for obj_id, bbox in self._bounds.items():
+            if obj_id in self._hidden:
+                continue
+            if exclude_internal and obj_id.startswith("__"):
+                continue
+            if category and self._categories.get(obj_id) != category:
+                continue
+            results.append((obj_id, bbox))
+        return results
+
+    def overlaps_any(self, bbox: BBox, margin: float = 0.15,
+                     exclude: set[str] | None = None) -> list[str]:
+        """Return IDs of visible objects whose bbox overlaps the given bbox."""
+        exclude = exclude or set()
+        return [
+            obj_id for obj_id, obj_bbox in self.visible_bounds()
+            if obj_id not in exclude and bbox.overlaps(obj_bbox, margin)
+        ]
+
+    def objects_in_rect(self, bbox: BBox) -> list[str]:
+        """Return IDs of visible objects fully contained within bbox."""
+        return [
+            obj_id for obj_id, obj_bbox in self.visible_bounds()
+            if bbox.contains(obj_bbox)
+        ]
+
+    def children_of(self, parent_id: str) -> list[str]:
+        """Return child object IDs contained by parent_id."""
+        return list(self._children.get(parent_id, []))
+
+    def find_vacant_rect(self, width: float, height: float) -> tuple[float, float] | None:
+        """Find a (center_x, center_y) for a rect of given size with no overlap.
+
+        Scans vertical gaps between occupied bands within the safe area.
+        Returns None if no space is available.
+        """
+        from rendering_engine.styles import (
+            SAFE_AREA_BOTTOM, SAFE_AREA_LEFT, SAFE_AREA_RIGHT, SAFE_AREA_TOP,
+        )
+
+        occupied = [b for _, b in self.visible_bounds()]
+        safe = BBox(SAFE_AREA_LEFT, SAFE_AREA_RIGHT, SAFE_AREA_BOTTOM, SAFE_AREA_TOP)
+
+        if not occupied:
+            return (safe.center_x, safe.center_y)
+
+        # Merge overlapping vertical bands
+        bands = sorted([(b.bottom, b.top) for b in occupied], key=lambda x: x[0])
+        merged = [list(bands[0])]
+        for bot, top in bands[1:]:
+            if bot <= merged[-1][1] + 0.05:
+                merged[-1][1] = max(merged[-1][1], top)
+            else:
+                merged.append([bot, top])
+
+        # Collect vertical gaps within safe area
+        candidates: list[tuple[float, float]] = []
+        gap_bot = safe.bottom
+        for m_bot, m_top in merged:
+            if m_bot - gap_bot >= height:
+                candidates.append((gap_bot, m_bot))
+            gap_bot = m_top
+        if safe.top - gap_bot >= height:
+            candidates.append((gap_bot, safe.top))
+
+        if not candidates:
+            return None
+
+        # Pick largest gap
+        candidates.sort(key=lambda g: g[1] - g[0], reverse=True)
+        best_bot, best_top = candidates[0]
+        cy = (best_bot + best_top) / 2
+        cx = safe.center_x
+
+        # Verify no overlap, try horizontal shifts if needed
+        for dx in [0, -1.5, 1.5, -3.0, 3.0]:
+            test_cx = cx + dx
+            if test_cx - width / 2 < safe.left or test_cx + width / 2 > safe.right:
+                continue
+            test = BBox(test_cx - width / 2, test_cx + width / 2,
+                        cy - height / 2, cy + height / 2)
+            if not self.overlaps_any(test):
+                return (test_cx, cy)
+
+        # Fallback: return center of best gap even with overlap
+        return (cx, cy)
+
+    def find_vacant_y(self, height: float = 1.5) -> float:
+        """Find the best Y center for an overlay of given height.
+
+        Replacement for the old module-level ``_find_vacant_y()``.
+        """
+        result = self.find_vacant_rect(width=10.0, height=height)
+        if result is not None:
+            return result[1]
+        from rendering_engine.styles import SAFE_AREA_BOTTOM, SAFE_AREA_TOP
+        return (SAFE_AREA_TOP + SAFE_AREA_BOTTOM) / 2
 
     # -- visibility helpers ------------------------------------------------
 
@@ -128,9 +339,7 @@ class SceneState:
             return
         scene.play(*[FadeOut(mob) for _, mob in pres], run_time=0.35)
         for k, _ in pres:
-            self.objects.pop(k, None)
-            self._categories.pop(k, None)
-            self._hidden.discard(k)
+            self.unregister(k)
 
     def has_persistent(self) -> bool:
         return any(
@@ -140,46 +349,135 @@ class SceneState:
 
     def persistent_bbox(self) -> tuple[float, float, float, float] | None:
         """Return (left_x, right_x, bottom_y, top_y) of visible persistent objects."""
-        mobs = [v for k, v in self.objects.items()
-                if self._categories.get(k) == "persistent"
-                and k not in self._hidden
-                and not k.startswith("__")]
-        if not mobs:
+        bboxes = [b for _, b in self.visible_bounds(category="persistent")]
+        if not bboxes:
             return None
-        lefts  = [m.get_left()[0]   for m in mobs]
-        rights = [m.get_right()[0]  for m in mobs]
-        bots   = [m.get_bottom()[1] for m in mobs]
-        tops   = [m.get_top()[1]    for m in mobs]
-        return min(lefts), max(rights), min(bots), max(tops)
+        result = bboxes[0]
+        for b in bboxes[1:]:
+            result = result.union(b)
+        return result.left, result.right, result.bottom, result.top
 
+    # -- overlap avoidance -------------------------------------------------
 
-def _avoid_persistent_overlap(state: SceneState, new_ids: set[str]) -> None:
-    """Shift newly-added presentation content below persistent objects."""
-    bbox = state.persistent_bbox()
-    if bbox is None:
-        return
+    def avoid_overlap(self, new_ids: set[str]) -> None:
+        """Shift newly-added presentation content to avoid ALL visible objects.
 
-    new_mobs = [state.objects[k] for k in new_ids if k in state.objects]
-    if not new_mobs:
-        return
+        Strategy (in order):
+        1. Full-size ``find_vacant_rect`` (top / bottom / between bands)
+        2. Scale to 70% and retry ``find_vacant_rect``
+        3. Try dedicated top reserved zone (above ``DIAGRAM_ZONE_TOP``) with scaling
+        4. Try dedicated bottom reserved zone (below ``DIAGRAM_ZONE_BOTTOM``) with scaling
+        5. Final fallback: shift below lowest persistent object & scale
+        """
+        from rendering_engine.styles import (
+            DIAGRAM_ZONE_BOTTOM,
+            DIAGRAM_ZONE_TOP,
+            SAFE_AREA_BOTTOM,
+            SAFE_AREA_LEFT,
+            SAFE_AREA_RIGHT,
+            SAFE_AREA_TOP,
+        )
 
-    group = VGroup(*new_mobs)
-    g_top = group.get_top()[1]
-    g_bot = group.get_bottom()[1]
-    _, _, p_bot, p_top = bbox
+        new_mobs = [self.objects[k] for k in new_ids if k in self.objects]
+        if not new_mobs:
+            return
 
-    if g_bot > p_top + 0.15 or g_top < p_bot - 0.15:
-        return
+        group = VGroup(*new_mobs)
+        g_top = group.get_top()[1]
 
-    target_top = p_bot - 0.45
-    shift_y = target_top - g_top
-    group.shift([0, shift_y, 0])
+        # Clamp below safe area top (topic header zone)
+        if g_top > SAFE_AREA_TOP:
+            group.shift([0, SAFE_AREA_TOP - g_top, 0])
+            g_top = group.get_top()[1]
 
-    if group.get_bottom()[1] < -3.7:
-        available = target_top - (-3.7)
-        if available > 0.4 and group.height > available:
-            group.scale(available / group.height)
-            group.move_to([group.get_center()[0], target_top - group.height / 2, 0])
+        # -- helper: check overlap with existing objects -------------------
+        def _overlaps() -> list[str]:
+            gb = BBox(
+                float(group.get_left()[0]), float(group.get_right()[0]),
+                float(group.get_bottom()[1]), float(group.get_top()[1]),
+            )
+            return [
+                oid for oid, bbox in self.visible_bounds()
+                if gb.overlaps(bbox, margin=0.15) and oid not in new_ids
+            ]
+
+        hits = _overlaps()
+        if not hits:
+            for nid in new_ids:
+                self.refresh_bounds(nid)
+            return
+
+        # --- 1. Full-size vacant rect search ------------------------------
+        vacant = self.find_vacant_rect(group.width + 0.3, group.height + 0.3)
+        if vacant is not None:
+            group.move_to([vacant[0], vacant[1], 0])
+            if not _overlaps():
+                self._clamp_and_finish(group, new_ids, SAFE_AREA_TOP, SAFE_AREA_BOTTOM)
+                return
+
+        # --- 2. Scale to 70% and retry -----------------------------------
+        original_height = group.height
+        group.scale(0.7)
+        vacant = self.find_vacant_rect(group.width + 0.3, group.height + 0.3)
+        if vacant is not None:
+            group.move_to([vacant[0], vacant[1], 0])
+            if not _overlaps():
+                self._clamp_and_finish(group, new_ids, SAFE_AREA_TOP, SAFE_AREA_BOTTOM)
+                return
+        # Restore scale for zone attempts
+        group.scale(1.0 / 0.7)
+
+        # --- 3. Try top reserved zone (above diagram, below header) ------
+        top_zone_h = SAFE_AREA_TOP - DIAGRAM_ZONE_TOP  # ~0.8 units
+        if top_zone_h > 0.3:
+            scale = min(1.0, top_zone_h / group.height)
+            if scale >= 0.35:
+                group.scale(scale)
+                zone_cy = (DIAGRAM_ZONE_TOP + SAFE_AREA_TOP) / 2
+                group.move_to([0, zone_cy, 0])
+                if not _overlaps():
+                    self._clamp_and_finish(group, new_ids, SAFE_AREA_TOP, SAFE_AREA_BOTTOM)
+                    return
+                group.scale(1.0 / scale)
+
+        # --- 4. Try bottom reserved zone (below diagram, above subtitle) -
+        bot_zone_h = DIAGRAM_ZONE_BOTTOM - SAFE_AREA_BOTTOM  # ~0.8 units
+        if bot_zone_h > 0.3:
+            scale = min(1.0, bot_zone_h / group.height)
+            if scale >= 0.35:
+                group.scale(scale)
+                zone_cy = (SAFE_AREA_BOTTOM + DIAGRAM_ZONE_BOTTOM) / 2
+                group.move_to([0, zone_cy, 0])
+                if not _overlaps():
+                    self._clamp_and_finish(group, new_ids, SAFE_AREA_TOP, SAFE_AREA_BOTTOM)
+                    return
+                group.scale(1.0 / scale)
+
+        # --- 5. Final fallback: shift below lowest persistent & scale -----
+        hit_bounds = [self._bounds[pid] for pid in hits if pid in self._bounds]
+        if hit_bounds:
+            p_bot = min(b.bottom for b in hit_bounds)
+            target_top = p_bot - 0.35
+            group.shift([0, target_top - group.get_top()[1], 0])
+
+            if group.get_bottom()[1] < SAFE_AREA_BOTTOM:
+                available = target_top - SAFE_AREA_BOTTOM
+                if available > 0.3 and group.height > available:
+                    group.scale(available / group.height)
+                    group.move_to([group.get_center()[0],
+                                   target_top - group.height / 2, 0])
+
+        self._clamp_and_finish(group, new_ids, SAFE_AREA_TOP, SAFE_AREA_BOTTOM)
+
+    def _clamp_and_finish(self, group, new_ids: set[str],
+                          sa_top: float, sa_bot: float) -> None:
+        """Clamp group to safe area and refresh cached bounds."""
+        if group.get_top()[1] > sa_top:
+            group.shift([0, sa_top - group.get_top()[1], 0])
+        if group.get_bottom()[1] < sa_bot:
+            group.shift([0, sa_bot - group.get_bottom()[1], 0])
+        for nid in new_ids:
+            self.refresh_bounds(nid)
 
 
 def _dispatch_action(scene, state: SceneState, action) -> None:
@@ -292,8 +590,8 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
     for nid in new_ids:
         state._categories[nid] = category
 
-    if is_pres and new_ids:
-        _avoid_persistent_overlap(state, new_ids)
+    if (is_pres or is_soft_pres) and new_ids:
+        state.avoid_overlap(new_ids)
 
 
 def _rebuild_action(action_dict: dict):
