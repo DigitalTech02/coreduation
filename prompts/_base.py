@@ -26,6 +26,7 @@ class SpecialtyPrompt:
             f"You do NOT write any code.  You only specify structured actions from the "
             f"vocabulary below, and a rendering engine handles all visuals deterministically.\n\n"
             f"{RETENTION_STRATEGY}\n\n"
+            f"{NARRATION_HUMANIZATION}\n\n"
             f"{self.video_structure}\n\n"
             f"{self.narration_style}\n\n"
             f"{ACTION_VOCABULARY}\n\n"
@@ -88,6 +89,60 @@ G. VISUAL ENGAGEMENT
    - Use add_callout for important labels
    - Use show_progress / update_progress for step-by-step algorithms
    - Use emphasize_text for key phrases or big reveals\
+"""
+
+
+# ── Narration humanization (identical across all categories) ─────────────
+
+NARRATION_HUMANIZATION = """\
+═══════════════════════════════════════════
+NARRATION HUMANIZATION
+═══════════════════════════════════════════
+
+Write narration like a CALM HUMAN INSTRUCTOR, not a textbook or documentation.
+
+A. SENTENCE STRUCTURE
+   - Maximum 18 words per sentence on average
+   - Use contractions: "you'll", "it's", "that's", "we're", "don't"
+   - Use second person: "you'll see", "imagine you're", "what you need"
+   - Vary sentence length aggressively: mix 5-word punches with 15-word explanations
+   - Use fragments for emphasis: "The key insight. Right here."
+
+B. TEACHER BRIDGE LINES (insert between concepts)
+   - "Here is the problem."
+   - "This part is important."
+   - "Now watch what happens."
+   - "Let's slow this down."
+   - "That is the key idea."
+   - "Before we move on, remember this."
+   - "Here's where it gets interesting."
+
+C. STORY-BASED FLOW
+   - Frame technical concepts as a STORY with characters and conflict
+   - For security: "Meet App A, the real app" → "Now imagine App B, a malicious app"
+   - For networking: "Your laptop sends a request" → "But what happens when it gets lost?"
+   - Always: problem → failed attempt → insight → solution → recap
+
+D. ONE IDEA PER NARRATION BLOCK
+   - Explain ONE concept per scene narration
+   - If you need to cover two ideas, split into two scenes
+   - After a key term, explain it in plain language immediately
+
+E. PACING METADATA (per scene)
+   - Set "pause_after" (seconds of silence after narration): 0.0 for flowing scenes,
+     0.6-1.0 after a key idea, 1.2-1.8 after a section transition, 1.5-2.5 after
+     a complex diagram
+   - Set "narration_pace": "slow" for definitions/explanations (calmer voice),
+     "normal" for narrative flow, "fast" for recaps/transitions only
+   - Target 125-145 words per minute. Count your words — if a scene has >30 words
+     for 10 seconds estimated_duration, it's too dense. Split it.
+
+F. OPENING RULE
+   Do NOT open with the topic name. Open with a hook:
+   BAD: "OAuth 2.0: Why We Need PKCE, Proof Key for Code Exchange."
+   GOOD: "OAuth is used everywhere. It helps apps sign you in without asking for
+   your password. But there's one weak point in some flows — a temporary code
+   that can be stolen. That's exactly the problem PKCE was designed to solve."\
 """
 
 
@@ -327,6 +382,12 @@ OPTIONAL per-scene metadata that drives multi-voice TTS, music, and AI B-roll:
   "image_prompt" — short DALL-E prompt for B-roll if the scene benefits from
                    a relatable photo/illustration (e.g. "a busy library
                    librarian organising shelves"); leave empty if not needed
+  "pause_after" — seconds of silence after this scene's narration ends
+                  (0.0 default, use 0.8-1.5 after key concepts, 1.5-2.5
+                  after complex diagrams). This gives viewers time to absorb.
+  "narration_pace" — one of: "slow", "normal", "fast" (default "normal").
+                     "slow" for definitions and deep explanations,
+                     "fast" only for brief recaps or transitions.
 
 Field "type" MUST be exactly one of: "concept", "code", or "visualization" \
 (use "visualization" for demos/walkthroughs/diagrams; "code" for commands/config; \

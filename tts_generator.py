@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output/audio")
 
+_PACE_TO_SPEED = {"slow": 0.92, "normal": 1.0, "fast": 1.05}
+
 
 def _ensure_output_dir() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,6 +64,7 @@ def generate_speech(
     provider: str | None = None,
     mood: str | None = None,
     voice: str | None = None,
+    speed: float = 1.0,
 ) -> float:
     """Convert text to speech and save to output_path.
 
@@ -101,7 +104,7 @@ def generate_speech(
         if not api_key:
             raise EnvironmentError("OPENAI_API_KEY is not set")
         client = OpenAI(api_key=api_key)
-        response = client.audio.speech.create(model=model, voice=resolved_voice, input=text)
+        response = client.audio.speech.create(model=model, voice=resolved_voice, input=text, speed=speed)
         response.stream_to_file(output_path)
     elif provider_enum == TTSProvider.elevenlabs:
         from elevenlabs.client import ElevenLabs

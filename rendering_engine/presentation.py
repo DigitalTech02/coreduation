@@ -46,6 +46,7 @@ from rendering_engine.styles import (
     SAFE_AREA_BOTTOM,
     SAFE_AREA_TOP,
     SECONDARY,
+    BULLET_ITEM_PAUSE,
     SHADOW_COLOR,
     SHADOW_OFFSET,
     SHADOW_OPACITY,
@@ -201,7 +202,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     if action.progressive:
         for i, bullet in enumerate(bullets):
             scene.play(_next_bullet_anim(bullet, i))
-            scene.wait(SHORT_PAUSE)
+            scene.wait(BULLET_ITEM_PAUSE)
     else:
         scene.play(FadeIn(bullet_group), run_time=FADE_DURATION)
 

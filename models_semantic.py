@@ -565,6 +565,8 @@ class SemanticScene(BaseModel):
     voice_mood: str = ""
     music_mood: str = ""
     image_prompt: str = ""
+    pause_after: float = 0.0
+    narration_pace: str = "normal"
 
     @field_validator("type", mode="before")
     @classmethod
@@ -618,6 +620,8 @@ class EnrichedScene(BaseModel):
     voice_mood: str = ""
     music_mood: str = ""
     image_prompt: str = ""
+    pause_after: float = 0.0
+    narration_pace: str = "normal"
 
     @field_validator("type", mode="before")
     @classmethod

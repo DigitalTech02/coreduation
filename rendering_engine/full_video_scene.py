@@ -184,7 +184,8 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             _dispatch_action(scene, state, action)
 
         elapsed = scene.renderer.time - t0
-        wait_time = max(0.0, audio_dur - elapsed - SCENE_FADE_OUT_SECONDS)
+        pause_after = float(sc.get("pause_after", 0.0))
+        wait_time = max(0.0, audio_dur + pause_after - elapsed - SCENE_FADE_OUT_SECONDS)
 
         if ENABLE_SUBTITLES and narration and wait_time > 1.0:
             from rendering_engine.subtitles import play_subtitles_for_scene

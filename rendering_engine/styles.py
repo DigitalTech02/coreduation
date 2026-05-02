@@ -143,6 +143,7 @@ PACKET_TRAVEL_DURATION = 1.5
 SHORT_PAUSE = 0.3
 MEDIUM_PAUSE = 0.6
 LONG_PAUSE = 1.0
+BULLET_ITEM_PAUSE = 0.45  # seconds between progressive bullet reveals
 
 # Full-video semantic pipeline (title + scene boundaries)
 TITLE_CARD_SECONDS = 2.5

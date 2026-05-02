@@ -96,6 +96,7 @@ def build_sfx_track(
     scene_actions: list[list[dict]],
     scene_durations: list[float],
     sfx_volume_db: float = -16.0,
+    scene_pauses: list[float] | None = None,
 ) -> AudioSegment | None:
     """Build a SFX track aligned to the narration timeline.
 
@@ -112,7 +113,8 @@ def build_sfx_track(
     for i, dur in enumerate(scene_durations):
         total_ms += int(dur * 1000)
         if i < len(scene_durations) - 1:
-            total_ms += int(SCENE_GAP_SECONDS * 1000)
+            pause_s = (scene_pauses[i] if scene_pauses and i < len(scene_pauses) else 0.0)
+            total_ms += int((SCENE_GAP_SECONDS + pause_s) * 1000)
 
     sfx_track = AudioSegment.silent(total_ms)
     cursor_ms = int((TITLE_CARD_SECONDS + intro_s) * 1000)
@@ -135,7 +137,8 @@ def build_sfx_track(
 
         cursor_ms += int(dur * 1000)
         if i < len(scene_durations) - 1:
-            cursor_ms += int(SCENE_GAP_SECONDS * 1000)
+            pause_s = (scene_pauses[i] if scene_pauses and i < len(scene_pauses) else 0.0)
+            cursor_ms += int((SCENE_GAP_SECONDS + pause_s) * 1000)
 
     return sfx_track if any_sfx else None
 
@@ -146,6 +149,7 @@ def build_music_track(
     category: str = "",
     scene_moods: list[str] | None = None,
     scene_durations: list[float] | None = None,
+    scene_pauses: list[float] | None = None,
 ) -> AudioSegment | None:
     """Loop background music to fill the total duration, ducked to volume.
 
@@ -165,6 +169,7 @@ def build_music_track(
             category,
             scene_moods,
             scene_durations,
+            scene_pauses=scene_pauses,
         )
 
     music = _load_background_music(category)
@@ -184,6 +189,7 @@ def _build_mood_music_track(
     category: str,
     scene_moods: list[str],
     scene_durations: list[float],
+    scene_pauses: list[float] | None = None,
 ) -> AudioSegment | None:
     """Construct a music track that swaps loop per scene."""
     intro_s = _intro_seconds()
@@ -205,10 +211,12 @@ def _build_mood_music_track(
         if seg_len_ms <= 0:
             continue
         loop = _load_background_music(category, mood or "")
+        pause_s = (scene_pauses[i] if scene_pauses and i < len(scene_pauses) else 0.0)
+        gap_ms = int((SCENE_GAP_SECONDS + pause_s) * 1000)
         if loop is None:
             cursor_ms += seg_len_ms
             if i < len(scene_durations) - 1:
-                cursor_ms += int(SCENE_GAP_SECONDS * 1000)
+                cursor_ms += gap_ms
             continue
         loop = loop + music_volume_db
         loops = (seg_len_ms // len(loop)) + 1
@@ -217,7 +225,7 @@ def _build_mood_music_track(
         track = track[:cursor_ms].overlay(bed[: end - cursor_ms]) + track[end:]
         cursor_ms += seg_len_ms
         if i < len(scene_durations) - 1:
-            cursor_ms += int(SCENE_GAP_SECONDS * 1000)
+            cursor_ms += gap_ms
 
     return track
 
@@ -228,6 +236,7 @@ def build_semantic_narration_track(
     scene_actions: list[list[dict]] | None = None,
     category: str = "",
     scene_moods: list[str] | None = None,
+    scene_pauses: list[float] | None = None,
 ) -> str:
     """Prepend title-length silence, insert gap silence between scenes.
 
@@ -250,11 +259,14 @@ def build_semantic_narration_track(
         seg = AudioSegment.from_file(p)
         scene_durations.append(len(seg) / 1000.0)
         combined += seg
+        # Add breathing pause after scene (pause_after + standard gap)
+        pause_s = (scene_pauses[i] if scene_pauses and i < len(scene_pauses) else 0.0)
+        gap_s = SCENE_GAP_SECONDS + pause_s
         if i < len(scene_audio_paths) - 1:
-            combined += AudioSegment.silent(int(SCENE_GAP_SECONDS * 1000))
+            combined += AudioSegment.silent(int(gap_s * 1000))
 
     if ENABLE_SFX and scene_actions:
-        sfx_track = build_sfx_track(scene_actions, scene_durations, SFX_VOLUME_DB)
+        sfx_track = build_sfx_track(scene_actions, scene_durations, SFX_VOLUME_DB, scene_pauses=scene_pauses)
         if sfx_track is not None:
             min_len = min(len(combined), len(sfx_track))
             combined = combined[:min_len].overlay(sfx_track[:min_len])
@@ -267,6 +279,7 @@ def build_semantic_narration_track(
             category,
             scene_moods=scene_moods,
             scene_durations=scene_durations,
+            scene_pauses=scene_pauses,
         )
         if music_track is not None:
             combined = combined.overlay(music_track)

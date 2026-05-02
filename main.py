@@ -160,13 +160,18 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     for scene in script.scenes:
         audio_path = str(audio_dir / f"{scene.scene_id}.mp3")
         mood = getattr(scene, "voice_mood", "") or None
-        duration = generate_speech(scene.narration, audio_path, mood=mood)
+        pace = getattr(scene, "narration_pace", "normal") or "normal"
+        speed = {"slow": 0.92, "normal": 1.0, "fast": 1.05}.get(pace, 1.0)
+        duration = generate_speech(scene.narration, audio_path, mood=mood, speed=speed)
         scene.audio_path = audio_path
         scene.audio_duration = duration
         logger.info(
-            "Scene '%s' (mood=%s): audio %.2fs -> %s",
-            scene.scene_id, mood or "default", duration, audio_path,
+            "Scene '%s' (mood=%s, pace=%s): audio %.2fs -> %s",
+            scene.scene_id, mood or "default", pace, duration, audio_path,
         )
+
+    from narration_processor import validate_narration_density
+    validate_narration_density(script.scenes)
 
     scene_paths = [s.audio_path for s in script.scenes if s.audio_path]
     scene_actions = [
@@ -174,6 +179,7 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
         for s in script.scenes
     ]
     scene_moods = [getattr(s, "music_mood", "") or "" for s in script.scenes]
+    scene_pauses = [getattr(s, "pause_after", 0.0) or 0.0 for s in script.scenes]
     combined_audio = str(run_dir / "full_narration.mp3")
     build_semantic_narration_track(
         scene_paths,
@@ -181,6 +187,7 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
         scene_actions=scene_actions,
         category=script.category,
         scene_moods=scene_moods,
+        scene_pauses=scene_pauses,
     )
 
     logger.info("--- Step 3: Rendering full video (single Manim scene) ---")
