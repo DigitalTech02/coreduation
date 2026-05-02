@@ -50,10 +50,17 @@ def _link_registered(
 
 
 def _build_packet(label: str, color) -> VGroup:
-    """Create a small labeled rounded rectangle representing a packet."""
+    """Create a small labeled rounded rectangle representing a packet.
+
+    The box auto-expands for long labels so text never overflows.
+    """
+    txt = Text(label, font_size=SUBLABEL_FONT_SIZE, color="#0f1117")
+    # Ensure box is wide enough for the label (with padding)
+    box_w = max(PACKET_WIDTH, txt.width + 0.3)
+    box_h = max(PACKET_HEIGHT, txt.height + 0.15)
     box = RoundedRectangle(
-        width=PACKET_WIDTH,
-        height=PACKET_HEIGHT,
+        width=box_w,
+        height=box_h,
         corner_radius=0.1,
         color=color,
         fill_color=color,
@@ -61,7 +68,6 @@ def _build_packet(label: str, color) -> VGroup:
         stroke_width=1.5,
     )
     apply_sheen(box, factor=0.35)
-    txt = Text(label, font_size=SUBLABEL_FONT_SIZE, color="#0f1117")
     txt.move_to(box.get_center())
     return VGroup(box, txt)
 
