@@ -11,6 +11,7 @@ Each run gets its own timestamped folder under ``output/``.
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 from datetime import datetime
@@ -226,25 +227,74 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     final_path = mux_video_with_audio(silent_video, combined_audio, final_out)
     logger.info("=== Pipeline complete! Final video: %s ===", final_path)
 
-    # Track 4A: deterministic per-scene frame validation. Non-blocking — logs
-    # warnings + writes a JSON report alongside the script. Run on the muxed
-    # final video so timing matches what viewers see.
+    # Track 4A: deterministic per-scene frame validation.
+    # Track 4B: optional GPT-4o per-scene structured QA (gated by ENABLE_SCENE_QA).
+    # Track 4C: optional auto-fix loop (gated by ENABLE_AUTO_FIX) that revises
+    #          the failed scenes and re-renders once.
+    deterministic_findings = []
+    scene_qa_findings = []
     try:
         from frame_validator import format_report, validate_video_against_script
         scenes_for_validation = [s.model_dump(by_alias=True) for s in script.scenes]
-        validation = validate_video_against_script(
+        deterministic_findings = validate_video_against_script(
             final_path, scenes=scenes_for_validation,
         )
-        report_text = format_report(validation)
+        report_text = format_report(deterministic_findings)
         for line in report_text.splitlines():
             logger.info("FrameValidator: %s", line)
-        validation_path = run_dir / "frame_validation.json"
-        validation_path.write_text(
-            json.dumps([r.to_dict() for r in validation], indent=2),
+        (run_dir / "frame_validation.json").write_text(
+            json.dumps([r.to_dict() for r in deterministic_findings], indent=2),
             encoding="utf-8",
         )
     except Exception as e:
         logger.warning("Frame validation skipped: %s", e)
+
+    if os.getenv("ENABLE_SCENE_QA", "false").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            logger.info("--- Step 4b: Scene QA (GPT-4o per scene) ---")
+            from vision_qa import run_scene_qa
+            scene_qa_findings = run_scene_qa(
+                final_path,
+                scenes=[s.model_dump(by_alias=True) for s in script.scenes],
+                report_path=str(run_dir / "scene_qa.json"),
+            )
+        except Exception as e:
+            logger.warning("Scene QA skipped: %s", e)
+
+    if os.getenv("ENABLE_AUTO_FIX", "false").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            from auto_fix import collect_fixes, revise_failed_scenes
+            scenes_dicts = [s.model_dump(by_alias=True) for s in script.scenes]
+            fixes = collect_fixes(deterministic_findings, scene_qa_findings, scenes_dicts)
+            if fixes:
+                logger.info("--- Step 4c: Auto-fix retry (%d failed scenes) ---", len(fixes))
+                script_dict = script.model_dump(by_alias=True)
+                revised, revised_ids = revise_failed_scenes(script_dict, fixes)
+                if revised_ids:
+                    from models_semantic import EnrichedVideoScript
+                    script = EnrichedVideoScript.model_validate(revised)
+                    (run_dir / "script.fixed.json").write_text(
+                        json.dumps(revised, indent=2), encoding="utf-8",
+                    )
+                    logger.info("Auto-fix revised scenes: %s", revised_ids)
+                    logger.info("--- Step 4c: Re-rendering with revised script ---")
+                    silent_video = render_full_semantic_video(script, output_dir=video_dir)
+                    if silent_video:
+                        final_out2 = str(run_dir / "final_semantic.fixed.mp4")
+                        final_path = mux_video_with_audio(
+                            silent_video, combined_audio, final_out2,
+                        )
+                        logger.info("Auto-fix render -> %s", final_path)
+                        # Re-validate after the retry render.
+                        deterministic_findings = validate_video_against_script(
+                            final_path,
+                            scenes=[s.model_dump(by_alias=True) for s in script.scenes],
+                        )
+                        report_text = format_report(deterministic_findings)
+                        for line in report_text.splitlines():
+                            logger.info("FrameValidator(post-fix): %s", line)
+        except Exception as e:
+            logger.warning("Auto-fix skipped: %s", e)
 
     try:
         from chrome_compositor import (
