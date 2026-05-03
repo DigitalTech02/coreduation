@@ -99,6 +99,29 @@ def _parse_position(pos: str) -> tuple[float, float, float]:
     return (0, 0, 0)
 
 
+def _clamp_node_into_safe_area(mob, padding: float = 0.15) -> None:
+    """Shift a node so its full bounding box (label + shape) sits inside the
+    safe area.  The LLM occasionally emits positions like (6,0) which place
+    the centre near the right edge — half the node spills off-frame.
+    """
+    left = float(mob.get_left()[0])
+    right = float(mob.get_right()[0])
+    top = float(mob.get_top()[1])
+    bottom = float(mob.get_bottom()[1])
+    dx = 0.0
+    dy = 0.0
+    if right > SAFE_AREA_RIGHT - padding:
+        dx = (SAFE_AREA_RIGHT - padding) - right
+    elif left < SAFE_AREA_LEFT + padding:
+        dx = (SAFE_AREA_LEFT + padding) - left
+    if top > SAFE_AREA_TOP - padding:
+        dy = (SAFE_AREA_TOP - padding) - top
+    elif bottom < SAFE_AREA_BOTTOM + padding:
+        dy = (SAFE_AREA_BOTTOM + padding) - bottom
+    if dx or dy:
+        mob.shift([dx, dy, 0])
+
+
 # ---------------------------------------------------------------------------
 # Node shape builders
 # ---------------------------------------------------------------------------
@@ -195,6 +218,7 @@ def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     text_bg.move_to(text_group.get_center())
 
     group = VGroup(shape, text_bg, *text_parts)
+    _clamp_node_into_safe_area(group)
     state.register(action.id, group)
     scene.play(FadeIn(group), run_time=FADE_DURATION)
 

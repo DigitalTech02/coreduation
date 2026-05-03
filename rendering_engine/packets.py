@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from manim import (
@@ -21,6 +22,7 @@ from rendering_engine.styles import (
     LABEL_FONT_SIZE,
     MUTED,
     PACKET_HEIGHT,
+    PACKET_MAX_WIDTH,
     PACKET_SPEED_BASE,
     PACKET_WIDTH,
     SHORT_PAUSE,
@@ -28,6 +30,8 @@ from rendering_engine.styles import (
     apply_sheen,
     resolve_color,
 )
+
+PACKET_LABEL_PADDING = 0.25
 
 if TYPE_CHECKING:
     from manim import Scene as ManimScene
@@ -50,9 +54,21 @@ def _link_registered(
 
 
 def _build_packet(label: str, color) -> VGroup:
-    """Create a small labeled rounded rectangle representing a packet."""
+    """Create a labeled rounded rectangle representing a packet.
+
+    Box auto-grows to fit the label between ``PACKET_WIDTH`` and
+    ``PACKET_MAX_WIDTH``. If the label still doesn't fit at the cap, the text
+    scales down rather than overflowing the box.
+    """
+    cleaned = re.sub(r"\s+", " ", (label or "").replace("\n", " ")).strip()
+    txt = Text(cleaned, font_size=SUBLABEL_FONT_SIZE, color="#0f1117")
+
+    target_w = min(
+        max(PACKET_WIDTH, txt.width + PACKET_LABEL_PADDING),
+        PACKET_MAX_WIDTH,
+    )
     box = RoundedRectangle(
-        width=PACKET_WIDTH,
+        width=target_w,
         height=PACKET_HEIGHT,
         corner_radius=0.1,
         color=color,
@@ -61,7 +77,9 @@ def _build_packet(label: str, color) -> VGroup:
         stroke_width=1.5,
     )
     apply_sheen(box, factor=0.35)
-    txt = Text(label, font_size=SUBLABEL_FONT_SIZE, color="#0f1117")
+
+    if txt.width > target_w - PACKET_LABEL_PADDING:
+        txt.set_width(target_w - PACKET_LABEL_PADDING)
     txt.move_to(box.get_center())
     return VGroup(box, txt)
 

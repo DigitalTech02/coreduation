@@ -42,3 +42,14 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local scratch
+temp/
+*.png
+
+# Secrets — never commit
+Youtube_Upload/
+client_secret*.json
+client_secrets.json
+token.pickle
+.claude/scheduled_tasks.lock

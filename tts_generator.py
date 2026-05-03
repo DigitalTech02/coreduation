@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output/audio")
 
-_PACE_TO_SPEED = {"slow": 0.92, "normal": 1.0, "fast": 1.05}
+PACE_TO_SPEED = {"slow": 0.92, "normal": 1.0, "fast": 1.05}
+
+
+def speed_for_pace(pace: str | None) -> float:
+    return PACE_TO_SPEED.get((pace or "normal").lower(), 1.0)
 
 
 def _ensure_output_dir() -> None:
@@ -74,8 +78,9 @@ def generate_speech(
     ``"dramatic"``, ``"narrator"``); see :mod:`voice_moods`.
     *voice* explicitly overrides the resolved voice.
 
-    Caches the audio bytes by ``(text, voice, model)`` so repeated runs are
-    instant.
+    Caches the audio bytes by ``(text, voice, model, speed)`` so repeated runs
+    are instant. ``speed`` is part of the key — same text at different paces
+    must not collide.
     """
     _ensure_output_dir()
 
@@ -87,15 +92,15 @@ def generate_speech(
 
     try:
         from caching import cache_tts_result, cached_tts
-        cached = cached_tts(text, resolved_voice, model, output_path)
+        cached = cached_tts(text, resolved_voice, model, output_path, speed=speed)
         if cached is not None:
             return cached
     except Exception as e:
         logger.debug("TTS cache lookup failed (continuing): %s", e)
 
     logger.info(
-        "Generating speech with provider: %s (voice=%s, model=%s, mood=%s) -> %s",
-        provider_enum.value, resolved_voice, model, mood or "default", output_path,
+        "Generating speech with provider: %s (voice=%s, model=%s, mood=%s, speed=%.2f) -> %s",
+        provider_enum.value, resolved_voice, model, mood or "default", speed, output_path,
     )
 
     if provider_enum == TTSProvider.openai:
@@ -111,6 +116,8 @@ def generate_speech(
         api_key = os.getenv("ELEVENLABS_API_KEY")
         if not api_key:
             raise EnvironmentError("ELEVENLABS_API_KEY is not set")
+        if abs(speed - 1.0) > 0.001:
+            logger.info("ElevenLabs path ignores speed=%.2f (provider has no per-call speed knob).", speed)
         client = ElevenLabs(api_key=api_key)
         audio = client.text_to_speech.convert(
             text=text,
@@ -130,7 +137,7 @@ def generate_speech(
 
     try:
         from caching import cache_tts_result
-        cache_tts_result(text, resolved_voice, model, output_path, duration)
+        cache_tts_result(text, resolved_voice, model, output_path, duration, speed=speed)
     except Exception as e:
         logger.debug("TTS cache store failed: %s", e)
 

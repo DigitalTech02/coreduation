@@ -67,7 +67,7 @@ def _get_branding_config():
             "intro": True,
             "outro": True,
             "watermark": True,
-            "name": "CoreDuation",
+            "name": "DT2",
             "tagline": "Engineering, explained.",
         }
 
@@ -90,7 +90,7 @@ def play_intro_card(scene: Any, category: str = "") -> None:
     outer = Circle(radius=0.55, color=accent, stroke_width=4)
     inner = Circle(radius=0.32, color=accent, stroke_width=0)
     inner.set_fill(accent, opacity=0.85)
-    glyph = Text("CD", font_size=28, color=BG_COLOR)
+    glyph = Text("DT2", font_size=22, color=BG_COLOR, weight="BOLD")
     glyph.move_to(inner.get_center())
     logo = VGroup(outer, inner, glyph).move_to(ORIGIN)
 

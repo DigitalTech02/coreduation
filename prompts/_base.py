@@ -346,7 +346,13 @@ node first (create_node) so it has a referenceable ID.
 - show_progress should be placed early in step-by-step scenes; use \
 update_progress to advance the step counter.
 - Include at least one failure/error scenario per video when appropriate. Use \
-shake_element + a red highlight or callout to illustrate the failure.\
+shake_element + a red highlight or callout to illustrate the failure.
+- The narration must NEVER include closing CTAs such as "thanks for \
+watching", "subscribe", "hit the bell", "see you next time", or "like and \
+subscribe". A separate outro card handles the channel CTA — duplicating it \
+in narration creates an awkward double-ending. End the final scene's \
+narration on the topic itself (a takeaway, a callback to the open-loop \
+question, or a forward-looking thought).\
 """
 
 # ── Output format (identical across all categories) ──────────────────────

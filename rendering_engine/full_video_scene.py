@@ -93,6 +93,46 @@ def _extract_scene_refs(actions: list[dict]) -> set[str]:
     return refs
 
 
+# Actions that take over the full canvas as a "slide".  When a scene contains
+# any of these, persistent topology objects from prior scenes are hidden so the
+# slide content has the canvas to itself — otherwise the lifelines / table
+# rows / code block render on top of (or behind) leftover nodes.
+_FULL_CANVAS_TYPES = frozenset({
+    "show_sequence_diagram",
+    "show_table",
+    "show_code_block",
+    "show_layer_stack",
+    "show_header_breakdown",
+    "show_chart",
+    "show_comparison",
+    "show_text_block",
+    "show_bullet_list",
+})
+
+
+def _scene_has_full_canvas_action(actions: list[dict]) -> bool:
+    return any(a.get("type") in _FULL_CANVAS_TYPES for a in actions)
+
+
+def _toggle_persistent_topic_header(state: SceneState, suppress: bool) -> None:
+    """Hide or show the persistent topic header.
+
+    Slide-style scenes (full canvas) suppress it so the scene title doesn't
+    fight with a tiny duplicate header at the top edge.  The header keeps its
+    anchor updater either way — only opacity changes.
+    """
+    header = state.objects.get(_TOPIC_HEADER_KEY)
+    if header is None:
+        return
+    target = 0.0 if suppress else 1.0
+    try:
+        for sub in header.submobjects:
+            sub.set_opacity(target)
+        header.set_opacity(target)
+    except Exception:
+        pass
+
+
 def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) -> None:
     """Hide or restore persistent objects based on whether this scene uses them.
 
@@ -112,6 +152,11 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
 
     scene_refs = _extract_scene_refs(actions)
     scene_uses_persistent = bool(persistent_ids & scene_refs)
+
+    # Slide-style scenes hide leftover topology even if a stray retention
+    # action references it — the visual goal is a clean stage for the slide.
+    if _scene_has_full_canvas_action(actions):
+        scene_uses_persistent = False
 
     if scene_uses_persistent:
         if state._hidden:
@@ -174,6 +219,9 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         )
 
         _auto_toggle_persistent(scene, state, actions)
+        _toggle_persistent_topic_header(
+            state, suppress=_scene_has_full_canvas_action(actions),
+        )
 
         t0 = scene.renderer.time
 

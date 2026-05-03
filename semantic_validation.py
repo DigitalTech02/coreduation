@@ -164,3 +164,123 @@ def validate_semantic_script(script: EnrichedVideoScript) -> list[str]:
 def parse_actions_from_dicts(raw: list[dict]) -> list:
     adapter = TypeAdapter(list[VisualAction])
     return adapter.validate_python(raw)
+
+
+# ---------------------------------------------------------------------------
+# Layout validation — structural pre-render check
+#
+# Cheap heuristics on the action list. We can't compute exact BBoxes without
+# rendering, but we can flag patterns that consistently produce visual bugs:
+# slide content + diagram nodes in the same scene, oversized bullet lists,
+# overly dense text blocks, and explicit positions outside the safe area.
+#
+# All findings are warnings (logged) — runtime safeguards (_avoid_collision,
+# clamp_to_zone, _clamp_node_into_safe_area) handle the actual fix.
+# ---------------------------------------------------------------------------
+
+_DIAGRAM_CREATING_TYPES = frozenset({
+    "create_node",
+    "create_topology",
+    "create_cloud_region",
+    "create_cloud_service",
+})
+
+_SLIDE_TYPES = frozenset({
+    "show_text_block",
+    "show_bullet_list",
+    "show_comparison",
+    "show_table",
+    "show_code_block",
+    "show_chart",
+    "show_layer_stack",
+    "show_header_breakdown",
+    "show_sequence_diagram",
+})
+
+_MAX_BULLETS_PER_LIST = 7
+_MAX_TEXT_BODY_CHARS = 320
+_MAX_NODES_PER_SCENE = 8
+
+
+def validate_layout(script: EnrichedVideoScript) -> list[str]:
+    """Walk scenes, emit warnings on layout patterns that risk visual bugs.
+
+    Returns the list of warning strings (also logged at WARNING level).
+    Never raises — runtime renderers fall back gracefully.
+    """
+    from rendering_engine.styles import (
+        SAFE_AREA_BOTTOM, SAFE_AREA_LEFT, SAFE_AREA_RIGHT, SAFE_AREA_TOP,
+    )
+
+    warnings: list[str] = []
+
+    for scene in script.scenes:
+        sid = scene.scene_id
+        actions = scene.actions
+        types = [a.type for a in actions]
+
+        slide_count = sum(1 for t in types if t in _SLIDE_TYPES)
+        diagram_count = sum(1 for t in types if t in _DIAGRAM_CREATING_TYPES)
+
+        # Pattern 1: slide content + new diagram nodes in same scene.
+        # The slide content will compete with the boxes for canvas. Runtime
+        # collision avoidance helps but flagging is still useful.
+        if slide_count > 0 and diagram_count > 0:
+            warnings.append(
+                f"scene {sid}: mixes {slide_count} slide-style action(s) "
+                f"with {diagram_count} diagram-creating action(s) — risk of "
+                f"text-through-box collision"
+            )
+
+        # Pattern 2: explicit node positions outside safe area.
+        # ``position`` is a string — either a hint ("center", "left") or
+        # "x,y" coords. Only validate when coords parse to floats.
+        for a in actions:
+            if a.type == "create_node":
+                pos = getattr(a, "position", "") or ""
+                parts = [p.strip() for p in pos.split(",")]
+                if len(parts) == 2:
+                    try:
+                        x, y = float(parts[0]), float(parts[1])
+                    except ValueError:
+                        continue
+                    if not (SAFE_AREA_LEFT <= x <= SAFE_AREA_RIGHT
+                            and SAFE_AREA_BOTTOM <= y <= SAFE_AREA_TOP):
+                        warnings.append(
+                            f"scene {sid} create_node {a.id!r}: position "
+                            f"({x:.2f}, {y:.2f}) outside safe area"
+                        )
+
+        # Pattern 3: too many nodes on screen at once.
+        if diagram_count > _MAX_NODES_PER_SCENE:
+            warnings.append(
+                f"scene {sid}: {diagram_count} diagram objects (max recommended "
+                f"{_MAX_NODES_PER_SCENE}) — likely overcrowded"
+            )
+
+        # Pattern 4: oversized bullet lists.
+        for a in actions:
+            if a.type == "show_bullet_list":
+                n = len(a.items)
+                if n > _MAX_BULLETS_PER_LIST:
+                    warnings.append(
+                        f"scene {sid} show_bullet_list: {n} items (max "
+                        f"recommended {_MAX_BULLETS_PER_LIST}) — won't fit "
+                        f"at minimum readable font"
+                    )
+
+        # Pattern 5: dense text body.
+        for a in actions:
+            if a.type == "show_text_block":
+                body_len = len(a.body or "")
+                if body_len > _MAX_TEXT_BODY_CHARS:
+                    warnings.append(
+                        f"scene {sid} show_text_block: body is {body_len} "
+                        f"chars (max recommended {_MAX_TEXT_BODY_CHARS}) — "
+                        f"consider splitting"
+                    )
+
+    for w in warnings:
+        logger.warning("Layout: %s", w)
+
+    return warnings

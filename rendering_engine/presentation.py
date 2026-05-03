@@ -38,9 +38,11 @@ from rendering_engine.styles import (
     CODE_FONT_SIZE,
     FADE_DURATION,
     FONT_MONO,
+    FONT_SANS,
     HIGHLIGHT,
     LABEL_FONT_SIZE,
     MEDIUM_PAUSE,
+    MIN_FONT_BODY,
     MUTED,
     PRIMARY,
     SAFE_AREA_BOTTOM,
@@ -131,6 +133,79 @@ def _clamp_to_safe_area(group: VGroup) -> None:
         group.move_to([group.get_center()[0], (SAFE_AREA_TOP + SAFE_AREA_BOTTOM) / 2, 0])
 
 
+def fit_text_to_box(
+    text: str,
+    max_width: float,
+    max_height: float,
+    *,
+    ideal_font: int = BODY_FONT_SIZE,
+    min_font: int = MIN_FONT_BODY,
+    color=MUTED,
+    weight: str = "NORMAL",
+    line_spacing: float = 1.3,
+) -> Text | None:
+    """Build a Text mobject that wraps and fits inside ``(max_width, max_height)``.
+
+    Strategy:
+      1. Try ``ideal_font`` with word-wrap targeting ``max_width``.
+      2. Shrink font in 2pt steps down to ``min_font`` if it's too tall.
+      3. Return ``None`` if even the smallest size doesn't fit — caller
+         should split the content into multiple scenes rather than render
+         unreadable text.
+
+    The character-width estimate is heuristic (sans-serif at ~0.0062 manim
+    units per pt-char-width) but consistently err's slightly toward more
+    aggressive wrapping, which is the failure mode we want.
+    """
+    import textwrap as _tw
+
+    def _chars_per_line(font_size: int) -> int:
+        char_w = max(0.0001, font_size * 0.0062)
+        return max(10, int(max_width / char_w))
+
+    for fs in range(ideal_font, min_font - 1, -2):
+        cpl = _chars_per_line(fs)
+        wrapped_lines = _tw.wrap(text, width=cpl) or [text]
+        wrapped = "\n".join(wrapped_lines)
+        mob = Text(wrapped, font_size=fs, color=color, weight=weight,
+                   line_spacing=line_spacing)
+        if mob.width > max_width:
+            mob.set_width(max_width)
+        if mob.height <= max_height:
+            return mob
+    return None
+
+
+def _avoid_collision(state, group: VGroup, margin: float = 0.15) -> None:
+    """Relocate *group* if it collides with already-registered visible objects.
+
+    Caption text drawn through diagram boxes was a high-frequency layout bug
+    (Victim App / OAuth Server collision in the PKCE video). Resolve by
+    finding a vacant rect of the same size; if one exists, shift the group
+    there. If not, leave it (caller may have called ``_clamp_to_safe_area``
+    already and there's nowhere better to go).
+    """
+    from rendering_engine.engine import BBox
+
+    bbox = BBox(
+        group.get_left()[0],
+        group.get_right()[0],
+        group.get_bottom()[1],
+        group.get_top()[1],
+    )
+    colliders = state.overlaps_any(bbox, margin=margin)
+    if not colliders:
+        return
+
+    spot = state.find_vacant_rect(group.width + 2 * margin, group.height + 2 * margin)
+    if spot is None:
+        return
+
+    target_x, target_y = spot
+    cx, cy = group.get_center()[0], group.get_center()[1]
+    group.shift([target_x - cx, target_y - cy, 0])
+
+
 # ---------------------------------------------------------------------------
 # show_text_block
 # ---------------------------------------------------------------------------
@@ -158,6 +233,7 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     content = VGroup(*parts).arrange(DOWN, buff=0.4)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
+    _avoid_collision(state, group)
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
@@ -193,6 +269,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
+    _avoid_collision(state, group)
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:

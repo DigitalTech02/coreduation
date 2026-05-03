@@ -94,12 +94,14 @@ def _open_cache(namespace: str):
 _TTS_NAMESPACE = "tts"
 
 
-def cached_tts(text: str, voice: str, model: str, output_path: str) -> float | None:
+def cached_tts(
+    text: str, voice: str, model: str, output_path: str, speed: float = 1.0
+) -> float | None:
     """If a cached TTS file exists for these inputs, copy it to *output_path*
     and return the duration.  Returns None on miss."""
     cache = _open_cache(_TTS_NAMESPACE)
     try:
-        key = _hash("tts-v1", text, voice, model)
+        key = _hash("tts-v2", text, voice, model, round(float(speed), 3))
         entry = cache.get(key)
         if not entry:
             return None
@@ -115,11 +117,13 @@ def cached_tts(text: str, voice: str, model: str, output_path: str) -> float | N
         cache.close()
 
 
-def cache_tts_result(text: str, voice: str, model: str, output_path: str, duration: float) -> None:
+def cache_tts_result(
+    text: str, voice: str, model: str, output_path: str, duration: float, speed: float = 1.0
+) -> None:
     """Store an already-generated TTS file under the input key."""
     cache = _open_cache(_TTS_NAMESPACE)
     try:
-        key = _hash("tts-v1", text, voice, model)
+        key = _hash("tts-v2", text, voice, model, round(float(speed), 3))
         try:
             audio_bytes = Path(output_path).read_bytes()
         except OSError:

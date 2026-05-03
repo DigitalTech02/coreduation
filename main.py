@@ -110,7 +110,7 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     from llm_orchestrator_semantic import generate_semantic_script
     from semantic_audio import build_semantic_narration_track, mux_video_with_audio
     from semantic_repair import repair_duplicate_ids
-    from semantic_validation import validate_semantic_script
+    from semantic_validation import validate_layout, validate_semantic_script
     from rendering_engine.engine import render_full_semantic_video
     from tts_generator import generate_speech
     from config import RETENTION_MODE, MAX_IDLE_VISUAL_SECONDS
@@ -132,6 +132,7 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
 
     logger.info("--- Step 1c: Validating semantic script ---")
     validate_semantic_script(script)
+    validate_layout(script)
 
     if RETENTION_MODE:
         logger.info("--- Step 1d: Enriching retention beats ---")
@@ -157,11 +158,16 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
         logger.info("YouTube title: %s", script.suggested_youtube_title)
 
     logger.info("--- Step 2: Generating TTS audio ---")
+    from tts_generator import speed_for_pace
+    from narration_processor import scrub_closing_ctas
+
+    scrub_closing_ctas(script.scenes)
+
     for scene in script.scenes:
         audio_path = str(audio_dir / f"{scene.scene_id}.mp3")
         mood = getattr(scene, "voice_mood", "") or None
         pace = getattr(scene, "narration_pace", "normal") or "normal"
-        speed = {"slow": 0.92, "normal": 1.0, "fast": 1.05}.get(pace, 1.0)
+        speed = speed_for_pace(pace)
         duration = generate_speech(scene.narration, audio_path, mood=mood, speed=speed)
         scene.audio_path = audio_path
         scene.audio_duration = duration

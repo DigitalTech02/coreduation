@@ -23,6 +23,18 @@ def _intro_seconds() -> float:
     except Exception:
         return 0.0
 
+
+def _outro_seconds() -> float:
+    """Duration of the branded outro card after the last scene's narration."""
+    try:
+        from config import ENABLE_BRANDING, ENABLE_OUTRO_CARD
+        if not (ENABLE_BRANDING and ENABLE_OUTRO_CARD):
+            return 0.0
+        from rendering_engine.branding import OUTRO_DURATION
+        return float(OUTRO_DURATION)
+    except Exception:
+        return 0.0
+
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output")
@@ -265,6 +277,12 @@ def build_semantic_narration_track(
         if i < len(scene_audio_paths) - 1:
             combined += AudioSegment.silent(int(gap_s * 1000))
 
+    # Trailing runway so the outro card plays out without ffmpeg -shortest
+    # cropping it. 0.6s buffer for the last scene's fade-out animation.
+    outro_s = _outro_seconds()
+    if outro_s > 0:
+        combined += AudioSegment.silent(int((outro_s + 0.6) * 1000))
+
     if ENABLE_SFX and scene_actions:
         sfx_track = build_sfx_track(scene_actions, scene_durations, SFX_VOLUME_DB, scene_pauses=scene_pauses)
         if sfx_track is not None:
@@ -291,19 +309,71 @@ def build_semantic_narration_track(
     return str(out)
 
 
+def _probe_duration_seconds(path: str) -> float | None:
+    """Return media file duration in seconds via ffprobe, or None on failure."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
+def _pad_audio_to_video(audio_path: str, video_path: str) -> str:
+    """If the silent video is longer than the narration, append silence so the
+    outro card and trailing fade-outs aren't cropped by ffmpeg ``-shortest``.
+
+    Returns the path to use as the audio input for muxing.  If padding isn't
+    needed (or duration probe fails), returns ``audio_path`` unchanged.
+    """
+    video_dur = _probe_duration_seconds(video_path)
+    audio_dur = _probe_duration_seconds(audio_path)
+    if video_dur is None or audio_dur is None:
+        return audio_path
+    deficit = video_dur - audio_dur
+    if deficit <= 0.05:
+        return audio_path
+
+    padded = AudioSegment.from_file(audio_path) + AudioSegment.silent(int(deficit * 1000))
+    padded_path = audio_path.replace(".mp3", ".padded.mp3")
+    padded.export(padded_path, format="mp3")
+    logger.info(
+        "Padded narration with %.2fs of trailing silence to match video (%.2fs -> %.2fs)",
+        deficit, audio_dur, audio_dur + deficit,
+    )
+    return padded_path
+
+
 def mux_video_with_audio(video_path: str, audio_path: str, output_path: str) -> str:
-    """Combine video + audio via ffmpeg.  Uses -shortest so the output matches
-    whichever track is shorter (ffmpeg pads last frame automatically)."""
+    """Combine video + audio via ffmpeg.
+
+    The audio is first padded with silence (if needed) so it matches the
+    silent video's duration — this keeps ffmpeg ``-shortest`` from clipping
+    the outro card off the end of the timeline.
+    """
     dest = Path(output_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     out = str(dest)
+
+    audio_for_mux = _pad_audio_to_video(audio_path, video_path)
 
     tmp = out + ".tmp.mp4"
 
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
-        "-i", audio_path,
+        "-i", audio_for_mux,
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",

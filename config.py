@@ -79,7 +79,7 @@ CACHE_DIR: str = _str("CACHE_DIR", ".cache")
 
 # Branding
 ENABLE_BRANDING: bool = _bool("ENABLE_BRANDING", True)
-CHANNEL_NAME: str = _str("CHANNEL_NAME", "CoreDuation")
+CHANNEL_NAME: str = _str("CHANNEL_NAME", "DT2")
 CHANNEL_TAGLINE: str = _str("CHANNEL_TAGLINE", "Engineering, explained.")
 ENABLE_INTRO_CARD: bool = _bool("ENABLE_INTRO_CARD", True)
 ENABLE_OUTRO_CARD: bool = _bool("ENABLE_OUTRO_CARD", True)
