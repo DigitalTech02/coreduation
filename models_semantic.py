@@ -594,6 +594,7 @@ class SemanticVideoScript(BaseModel):
     retention_beats: list[RetentionBeat | str] = Field(default_factory=list)
     target_audience: str = ""
     emotional_tone: str = ""
+    key_phrase: str = ""
     suggested_thumbnail_text: str = ""
     suggested_youtube_title: str = ""
     suggested_youtube_tags: list[str] = Field(default_factory=list)
@@ -644,6 +645,7 @@ class EnrichedVideoScript(BaseModel):
     retention_beats: list[RetentionBeat | str] = Field(default_factory=list)
     target_audience: str = ""
     emotional_tone: str = ""
+    key_phrase: str = ""
     suggested_thumbnail_text: str = ""
     suggested_youtube_title: str = ""
     suggested_youtube_tags: list[str] = Field(default_factory=list)
@@ -661,6 +663,7 @@ class EnrichedVideoScript(BaseModel):
             retention_beats=llm_script.retention_beats,
             target_audience=llm_script.target_audience,
             emotional_tone=llm_script.emotional_tone,
+            key_phrase=llm_script.key_phrase,
             suggested_thumbnail_text=llm_script.suggested_thumbnail_text,
             suggested_youtube_title=llm_script.suggested_youtube_title,
             suggested_youtube_tags=llm_script.suggested_youtube_tags,
