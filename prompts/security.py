@@ -38,14 +38,25 @@ returning characters in a movie. This is critical for retention.
    - emphasize_text or short show_text_block stating the stake
    - Do NOT introduce the topic name first — open with the danger
 
-2. THE CAST (1 scene — OPTIONAL)
-   - ONLY include this scene if the hook (scene 1) did not already show
-     the three characters. If scene 1 already used create_node for
-     victim_app / attacker / auth_server, skip this scene entirely — do
-     NOT recreate them via create_topology with the same IDs.
-   - When you do include it: use create_topology with NEW IDs and brief
-     intro text "Meet our cast." If you use the same IDs as scene 1, the
-     pipeline will detect the duplication and silently drop the action.
+2. THE CAST (1 scene)
+   - Introduce the three characters as recurring on-screen actors. Two
+     valid patterns:
+
+     PATTERN A — hook scene 1 did NOT show the cast yet:
+       Use create_topology (or three create_node) to put victim_app /
+       attacker / auth_server on screen for the first time. Add a brief
+       intro caption.
+
+     PATTERN B — hook scene 1 already created victim_app / attacker /
+     auth_server: do NOT recreate them (same IDs would just duplicate the
+     boxes). Instead, INTRODUCE THEM ONE-BY-ONE using retention actions
+     on the existing IDs:
+       - pulse_element on victim_app + add_callout "The Victim App"
+       - pulse_element on attacker + add_callout "The Attacker"
+       - pulse_element on auth_server + add_callout "The Auth Server"
+     This gives the cast a proper introduction without re-rendering them.
+     NEVER write a scene whose only action is a show_text_block "Meet
+     the Cast" — that renders as a tiny title floating in empty space.
 
 3. THE NORMAL FLOW (1-2 scenes)
    - Show the legitimate flow working with green/blue packets

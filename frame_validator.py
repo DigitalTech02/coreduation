@@ -170,14 +170,26 @@ def _validate_frame(arr: np.ndarray) -> list[FrameFinding]:
     return findings
 
 
-def _scene_midpoint(scene_starts: list[float], i: int, video_duration: float) -> float:
-    """Pick a frame timestamp inside scene *i* — just past its start to avoid
-    fade-in artifacts and well before its end."""
+def _scene_sample_times(
+    scene_starts: list[float], i: int, video_duration: float,
+) -> list[float]:
+    """Pick three sample timestamps inside scene *i* — early, mid, late.
+
+    Slide-style scenes have sequential title → bullet reveals. Chapter
+    transition cards add fixed overhead between sections. Single-frame
+    sampling produces false positives at either extreme. We sample three
+    frames and require ALL of them to fail before flagging a scene.
+    """
     start = scene_starts[i]
     end = scene_starts[i + 1] if i + 1 < len(scene_starts) else video_duration
     span = end - start
-    # Sample at 35% into the scene: past the fade-in, before any final-action animation.
-    return start + max(0.5, span * 0.35)
+    if span < 1.5:
+        return [start + span * 0.5]
+    return [
+        start + max(1.0, span * 0.30),
+        start + max(1.5, span * 0.55),
+        start + max(2.0, span * 0.80),
+    ]
 
 
 def _compute_scene_starts(scenes: list[dict], intro_offset: float = 2.5) -> list[float]:
@@ -233,45 +245,66 @@ def validate_video_against_script(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for i, scene in enumerate(scenes):
-            ts = _scene_midpoint(scene_starts, i, video_duration)
-            if ts >= video_duration:
-                # Scene falls past the muxed video end — render was shorter than expected.
+            sample_times = _scene_sample_times(scene_starts, i, video_duration)
+            in_range_times = [t for t in sample_times if t < video_duration]
+
+            if not in_range_times:
                 results.append(SceneValidation(
                     scene_id=scene.get("scene_id", f"scene_{i}"),
-                    timestamp=ts,
+                    timestamp=sample_times[0],
                     severity="warn",
                     findings=[FrameFinding(
                         type="missing",
                         severity="warn",
-                        detail=f"scene start {ts:.1f}s past video end {video_duration:.1f}s",
+                        detail=(
+                            f"scene start {sample_times[0]:.1f}s past video end "
+                            f"{video_duration:.1f}s"
+                        ),
                     )],
                 ))
                 continue
 
-            frame_path = str(Path(tmpdir) / f"frame_{i}.png")
-            if not _extract_frame(video_path, ts, frame_path):
+            # Sample multiple frames; only flag a scene if ALL samples agree.
+            per_sample_findings: list[list[FrameFinding]] = []
+            for j, ts in enumerate(in_range_times):
+                frame_path = str(Path(tmpdir) / f"frame_{i}_{j}.png")
+                if not _extract_frame(video_path, ts, frame_path):
+                    continue
+                try:
+                    img = Image.open(frame_path).convert("RGB")
+                    arr = np.array(img)
+                except Exception as e:
+                    logger.warning("Failed to load frame %s: %s", frame_path, e)
+                    continue
+                per_sample_findings.append(_validate_frame(arr))
+
+            if not per_sample_findings:
                 continue
 
-            try:
-                img = Image.open(frame_path).convert("RGB")
-                arr = np.array(img)
-            except Exception as e:
-                logger.warning("Failed to load frame %s: %s", frame_path, e)
-                continue
+            # Aggregate: only flag a finding TYPE if it appears in EVERY sample.
+            common_types: set[str] | None = None
+            for sample in per_sample_findings:
+                types = {f.type for f in sample}
+                common_types = types if common_types is None else (common_types & types)
+            common_types = common_types or set()
 
-            findings = _validate_frame(arr)
-            if not findings:
+            agg_findings = [
+                f for f in per_sample_findings[len(per_sample_findings) // 2]
+                if f.type in common_types
+            ]
+
+            if not agg_findings:
                 severity = "ok"
-            elif any(f.severity == "fail" for f in findings):
+            elif any(f.severity == "fail" for f in agg_findings):
                 severity = "fail"
             else:
                 severity = "warn"
 
             results.append(SceneValidation(
                 scene_id=scene.get("scene_id", f"scene_{i}"),
-                timestamp=ts,
+                timestamp=in_range_times[len(in_range_times) // 2],
                 severity=severity,
-                findings=findings,
+                findings=agg_findings,
             ))
 
     return results
