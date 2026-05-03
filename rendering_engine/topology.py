@@ -176,12 +176,49 @@ def _build_node_shape(icon_type: str, color):
 # Public API
 # ---------------------------------------------------------------------------
 
+_ROLE_COLOR_RED = "#e57373"     # NEGATIVE-equivalent hex for attackers
+_ROLE_COLOR_BLUE = "#90caf9"    # PRIMARY-equivalent hex for victims/clients
+_ROLE_COLOR_GREEN = "#a5d6a7"   # POSITIVE-equivalent hex for trusted/secure
+_ROLE_COLOR_GOLD = "#ffd54f"    # ACCENT-equivalent hex for secrets/tokens
+
+
+def _role_color_from_label(label: str, fallback):
+    """Infer a semantic accent color from a node label.
+
+    Returns the fallback when no role keyword matches. Keeps the rule
+    simple: a single keyword scan, no scoring or fuzzy matching.
+    """
+    if not label:
+        return fallback
+    lower = label.lower()
+    # Threat actors → red
+    if any(k in lower for k in ("attacker", "evil", "malicious", "intruder",
+                                 "adversary", "rogue", "compromised")):
+        return _ROLE_COLOR_RED
+    # Victims / clients / requesters → blue
+    if any(k in lower for k in ("victim", "client", "user", "browser")):
+        return _ROLE_COLOR_BLUE
+    # Trusted / secure / verified → green
+    if any(k in lower for k in ("trusted", "secure", "verified", "authority",
+                                 "legitimate")):
+        return _ROLE_COLOR_GREEN
+    # Secrets / tokens / keys → gold
+    if any(k in lower for k in ("secret", "token", "key vault", "verifier")):
+        return _ROLE_COLOR_GOLD
+    return fallback
+
+
 def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     """Render a create_node action."""
     pos = _parse_position(action.position)
     _, default_color = ICON_THEME.get(action.icon_type.value, ("rectangle", MUTED))
 
-    shape = _build_node_shape(action.icon_type.value, default_color)
+    # Role-based color override: a node labelled "Attacker" should be red
+    # regardless of icon_type, "Victim App" blue, etc. This adds a layer of
+    # semantic colour the LLM doesn't have to think about.
+    color = _role_color_from_label(action.label, default_color)
+
+    shape = _build_node_shape(action.icon_type.value, color)
     shape.move_to(pos)
 
     label_text = action.label[:18] + "…" if len(action.label) > 18 else action.label

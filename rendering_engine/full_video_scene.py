@@ -153,9 +153,14 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
     scene_refs = _extract_scene_refs(actions)
     scene_uses_persistent = bool(persistent_ids & scene_refs)
 
-    # Slide-style scenes hide leftover topology even if a stray retention
-    # action references it — the visual goal is a clean stage for the slide.
-    if _scene_has_full_canvas_action(actions):
+    # Slide-style scenes (full canvas) hide leftover topology ONLY when the
+    # scene doesn't reference persistent objects via retention actions
+    # (dim_except, pulse_element, add_callout, etc.). When the LLM combines
+    # a show_text_block with a dim_except on persistent IDs, it intends both
+    # slide content AND persistent visualization (e.g. a "Defense Holds"
+    # title overlaying dimmed topology). Honour the intent: keep persistent
+    # visible and let _avoid_collision relocate the slide text.
+    if _scene_has_full_canvas_action(actions) and not scene_refs & persistent_ids:
         scene_uses_persistent = False
 
     if scene_uses_persistent:
@@ -539,10 +544,13 @@ def _play_title_card(
     )
     card = VGroup(title, subtitle).arrange(DOWN, buff=0.35)
 
+    # Subtle halo: 1.04× scale + 0.05 opacity. Keeps the title from feeling
+    # flat without producing a visible "ghost" duplicate (a known artifact of
+    # the prior 1.15× / 0.14-opacity copy — it read as second-text-behind).
     glow = title.copy()
-    glow.scale(1.15)
+    glow.scale(1.04)
     glow.move_to(title.get_center())
-    glow.set_fill(accent, opacity=GLOW_OPACITY)
+    glow.set_fill(accent, opacity=0.05)
     glow.set_stroke(width=0)
     card.add_to_back(glow)
 
