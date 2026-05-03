@@ -226,6 +226,26 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     final_path = mux_video_with_audio(silent_video, combined_audio, final_out)
     logger.info("=== Pipeline complete! Final video: %s ===", final_path)
 
+    # Track 4A: deterministic per-scene frame validation. Non-blocking — logs
+    # warnings + writes a JSON report alongside the script. Run on the muxed
+    # final video so timing matches what viewers see.
+    try:
+        from frame_validator import format_report, validate_video_against_script
+        scenes_for_validation = [s.model_dump(by_alias=True) for s in script.scenes]
+        validation = validate_video_against_script(
+            final_path, scenes=scenes_for_validation,
+        )
+        report_text = format_report(validation)
+        for line in report_text.splitlines():
+            logger.info("FrameValidator: %s", line)
+        validation_path = run_dir / "frame_validation.json"
+        validation_path.write_text(
+            json.dumps([r.to_dict() for r in validation], indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning("Frame validation skipped: %s", e)
+
     try:
         from chrome_compositor import (
             concat_with_chrome,
