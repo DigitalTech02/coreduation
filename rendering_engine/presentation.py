@@ -295,31 +295,60 @@ _CODE_SCROLL_SPEED = 1.6
 
 
 def _build_code_lines(lines: list[str], max_h: float):
-    """Build code line mobjects, auto-reducing font if too many lines."""
+    """Build code line mobjects sized so the whole block fits in *max_h*.
+
+    Manim doesn't clip child mobjects to a parent bounding box, so the
+    previous "scroll if too tall" path produced visually scrambled output:
+    the scroll animation shifted lines up but the off-box ones remained
+    visible at their new positions, overlapping the in-box ones.
+
+    Instead: pick a font size and per-line buffer that GUARANTEES the
+    block fits inside ``max_h``. If the smallest readable size still
+    overflows, the renderer's scroll fallback handles it (and even there
+    we now hide the off-box lines).
+    """
     from rendering_engine.styles import WHITE
 
-    n = len(lines)
-    font_size = CODE_FONT_SIZE
-    if n > 18:
-        font_size = max(12, CODE_FONT_SIZE - 6)
-    elif n > 12:
-        font_size = max(14, CODE_FONT_SIZE - 4)
-    elif n > 8:
-        font_size = max(16, CODE_FONT_SIZE - 2)
+    n = max(1, len(lines))
+    target_h = max(0.5, max_h - 0.3)  # leave room for buffer/border
+
+    # Find a (font_size, buff) that fits. Search from ideal downward.
+    chosen_font = CODE_FONT_SIZE
+    chosen_buff = 0.12
+    for font_size, buff in (
+        (CODE_FONT_SIZE, 0.14),
+        (CODE_FONT_SIZE, 0.12),
+        (CODE_FONT_SIZE - 2, 0.12),
+        (CODE_FONT_SIZE - 4, 0.10),
+        (CODE_FONT_SIZE - 6, 0.08),
+        (CODE_FONT_SIZE - 8, 0.07),
+        (12, 0.06),
+    ):
+        if font_size < 12:
+            continue
+        # rough Manim line height ≈ font_size * 0.018 + tiny margin
+        approx_line_h = font_size * 0.018 + 0.05
+        approx_total = n * approx_line_h + (n - 1) * buff
+        if approx_total <= target_h:
+            chosen_font, chosen_buff = font_size, buff
+            break
 
     code_mobs = []
     for line_text in lines:
-        lm = Text(line_text, font_size=font_size, font=FONT_MONO, color=WHITE)
+        lm = Text(line_text, font_size=chosen_font, font=FONT_MONO, color=WHITE)
         lm.set_opacity(0.88)
         if lm.width > _CODE_LINE_MAX_WIDTH:
             lm.set_width(_CODE_LINE_MAX_WIDTH)
         code_mobs.append(lm)
 
-    buff = 0.10 if n > 12 else 0.12
-    group = VGroup(*code_mobs).arrange(DOWN, aligned_edge=LEFT, buff=buff)
+    group = VGroup(*code_mobs).arrange(DOWN, aligned_edge=LEFT, buff=chosen_buff)
 
     if group.width > _CODE_MAX_WIDTH:
         group.scale_to_fit_width(_CODE_MAX_WIDTH)
+
+    # Final safety: if our heuristic was wrong, scale the entire group to fit.
+    if group.height > target_h:
+        group.scale_to_fit_height(target_h)
 
     return code_mobs, group
 
@@ -345,6 +374,15 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
     needs_scroll = code_group.height > max_h
     if not needs_scroll and code_group.height > max_h * 0.92:
         code_group.scale_to_fit_height(max_h * 0.92)
+        needs_scroll = False
+
+    # _build_code_lines now adaptively sizes content to fit, so needs_scroll
+    # should be False in practice. If it somehow isn't (e.g. user passes very
+    # long single lines), force the group to scale rather than enter the
+    # scroll path — Manim doesn't clip to a bounding box, so scrolling
+    # produces overlapping text rather than a clean scroll.
+    if needs_scroll:
+        code_group.scale_to_fit_height(max_h * 0.95)
         needs_scroll = False
 
     if needs_scroll:

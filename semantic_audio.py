@@ -286,8 +286,12 @@ def build_semantic_narration_track(
     if ENABLE_SFX and scene_actions:
         sfx_track = build_sfx_track(scene_actions, scene_durations, SFX_VOLUME_DB, scene_pauses=scene_pauses)
         if sfx_track is not None:
-            min_len = min(len(combined), len(sfx_track))
-            combined = combined[:min_len].overlay(sfx_track[:min_len])
+            # Don't truncate combined to sfx length — sfx_track only covers
+            # intro+scenes (no outro silence), and truncating here would
+            # crop the outro tail silence that was added above, causing the
+            # last scene's narration to bleed into the outro card visually.
+            # Overlay starting at t=0; pydub leaves the longer track intact.
+            combined = combined.overlay(sfx_track, position=0)
             logger.info("Mixed SFX track into narration")
 
     if ENABLE_BACKGROUND_MUSIC:
