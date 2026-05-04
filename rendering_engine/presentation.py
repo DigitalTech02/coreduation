@@ -196,14 +196,14 @@ def fit_text_to_box(
     return None
 
 
-def _avoid_collision(state, group: VGroup, margin: float = 0.15) -> None:
-    """Relocate *group* if it collides with already-registered visible objects.
+def _avoid_collision(scene, state, group: VGroup, margin: float = 0.20) -> VGroup:
+    """If *group* would overlap visible diagram objects, relocate it to the
+    largest vacant region (above / below / left / right of the diagram),
+    scale to fit, and wrap in a subtle card so the text reads as its own
+    content block. Animates the card into the scene with a quick fade.
 
-    Caption text drawn through diagram boxes was a high-frequency layout bug
-    (Victim App / OAuth Server collision in the PKCE video). Resolve by
-    finding a vacant rect of the same size; if one exists, shift the group
-    there. If not, leave it (caller may have called ``_clamp_to_safe_area``
-    already and there's nowhere better to go).
+    Returns the group as it should be registered with the SceneState. If
+    no relocation was needed, returns the group unchanged.
     """
     from rendering_engine.engine import BBox
 
@@ -215,15 +215,49 @@ def _avoid_collision(state, group: VGroup, margin: float = 0.15) -> None:
     )
     colliders = state.overlaps_any(bbox, margin=margin)
     if not colliders:
-        return
+        return group
 
-    spot = state.find_vacant_rect(group.width + 2 * margin, group.height + 2 * margin)
-    if spot is None:
-        return
+    region = state.find_largest_vacant_region(min_width=2.5, min_height=0.8)
+    if region is None:
+        return group
 
-    target_x, target_y = spot
+    avail_w = (region.right - region.left) - 2 * margin
+    avail_h = (region.top - region.bottom) - 2 * margin
+    if avail_w <= 0 or avail_h <= 0:
+        return group
+
+    # Scale to fit the vacant region (preserve aspect; no upscale).
+    # Floor at 0.65 so text doesn't shrink below readable: large titles
+    # (40pt) stay at >= 26pt, body (26pt) stays at >= 17pt. We'd rather
+    # nudge slightly past the region edge than make the text unreadable.
+    scale = min(1.0, avail_w / max(0.1, group.width), avail_h / max(0.1, group.height))
+    if scale < 0.99:
+        group.scale(max(0.65, scale * 0.97))
+
+    # Recenter into the region.
+    target_x = (region.left + region.right) / 2
+    target_y = (region.bottom + region.top) / 2
     cx, cy = group.get_center()[0], group.get_center()[1]
     group.shift([target_x - cx, target_y - cy, 0])
+
+    # Wrap in a subtle card so the relocated text reads as a contained block.
+    from manim import FadeIn, RoundedRectangle
+    card = RoundedRectangle(
+        width=group.width + 0.4,
+        height=group.height + 0.3,
+        corner_radius=0.10,
+        stroke_width=1.2,
+        stroke_color=MUTED,
+        stroke_opacity=0.45,
+        fill_color=BG_COLOR,
+        fill_opacity=0.78,
+    )
+    card.move_to(group.get_center())
+    try:
+        scene.play(FadeIn(card), run_time=0.20)
+    except Exception:
+        pass
+    return VGroup(card, group)
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +287,7 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     content = VGroup(*parts).arrange(DOWN, buff=0.4)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
-    _avoid_collision(state, group)
+    group = _avoid_collision(scene, state, group)
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
@@ -289,7 +323,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
-    _avoid_collision(state, group)
+    group = _avoid_collision(scene, state, group)
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:
@@ -537,7 +571,7 @@ def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None
     content = VGroup(*parts).arrange(DOWN, buff=0.5)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
-    _avoid_collision(state, group)
+    group = _avoid_collision(scene, state, group)
     state.register(f"comparison_{action.title or 'cmp'}", group)
 
     if title_mob:

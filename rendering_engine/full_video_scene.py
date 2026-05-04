@@ -152,18 +152,13 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
 
     scene_refs = _extract_scene_refs(actions)
     refs_persistent = bool(persistent_ids & scene_refs)
-    has_full_canvas = _scene_has_full_canvas_action(actions)
 
-    # Three modes:
-    #   PURE PERSISTENT — topology + retention only → keep persistent at full opacity.
-    #   PURE SLIDE      — slide content, no persistent refs → hide persistent.
-    #   HYBRID          — slide content + retention refs to persistent → DIM persistent
-    #                     so the slide text reads cleanly on top, instead of overlapping
-    #                     the boxes (file21/23/24 overlap bug).
-    is_hybrid = has_full_canvas and refs_persistent
-    is_pure_persistent = refs_persistent and not has_full_canvas
-
-    if is_pure_persistent:
+    # Two-state model per user feedback:
+    #   - If scene references persistent objects → keep them at FULL opacity
+    #     (no dimming). The slide content's renderer is responsible for
+    #     relocating itself into vacant canvas space via _avoid_collision.
+    #   - Otherwise → HIDE persistent entirely so the slide has the canvas.
+    if refs_persistent:
         if state._hidden:
             state.restore_persistent(scene)
         try:
@@ -175,19 +170,7 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
                 state._parallax_updater = updater
         except Exception:
             pass
-    elif is_hybrid:
-        # Dim persistent so slide-style content overlays read clearly. Skip
-        # parallax — slide text doesn't drift, so neither should the bg.
-        state.dim_persistent(scene, opacity=0.22)
-        try:
-            from rendering_engine.easing import remove_parallax
-            existing = getattr(state, "_parallax_updater", None)
-            if existing is not None:
-                remove_parallax(scene, existing)
-                state._parallax_updater = None
-        except Exception:
-            pass
-    else:  # pure slide (no persistent refs) — hide entirely
+    else:
         if not state._hidden:
             state.hide_persistent(scene)
         try:

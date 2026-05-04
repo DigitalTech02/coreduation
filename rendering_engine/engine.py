@@ -329,29 +329,53 @@ class SceneState:
         )
         self._hidden.clear()
 
-    def dim_persistent(self, scene, opacity: float = 0.22) -> None:
-        """Fade persistent objects to a dimmed opacity so slide-style
-        content overlays read clearly on top.
+    def find_largest_vacant_region(
+        self, min_width: float = 2.0, min_height: float = 1.0,
+    ) -> BBox | None:
+        """Return the biggest vacant axis-aligned rectangle in the safe area.
 
-        Used in HYBRID scenes (slide content + retention actions on
-        existing topology) to prevent text-vs-box overlap. Different from
-        hide_persistent: keeps boxes faintly visible so the viewer
-        doesn't lose continuity with prior scenes.
+        Tries four candidate regions: above all occupied content, below it,
+        and the left/right strips beside it. Returns the BBox with the
+        largest area that meets the minimum dimensions, or None if no
+        region qualifies. Callers then scale their content to fit and
+        center it inside.
         """
-        to_dim = [
-            (k, v) for k, v in self.objects.items()
-            if self._categories.get(k) == "persistent"
-            and not k.startswith("__")
-        ]
-        if not to_dim:
-            return
-        scene.play(
-            *[mob.animate.set_opacity(opacity) for _, mob in to_dim],
-            run_time=0.3,
+        from rendering_engine.styles import (
+            SAFE_AREA_BOTTOM, SAFE_AREA_LEFT, SAFE_AREA_RIGHT, SAFE_AREA_TOP,
         )
-        # Track via _hidden so a later restore_persistent brings them back.
-        for k, _ in to_dim:
-            self._hidden.add(k)
+
+        occupied = [b for _, b in self.visible_bounds()]
+        safe = BBox(SAFE_AREA_LEFT, SAFE_AREA_RIGHT, SAFE_AREA_BOTTOM, SAFE_AREA_TOP)
+        if not occupied:
+            return safe
+
+        # Union extents of all visible content.
+        u_left = min(b.left for b in occupied)
+        u_right = max(b.right for b in occupied)
+        u_bottom = min(b.bottom for b in occupied)
+        u_top = max(b.top for b in occupied)
+
+        margin = 0.25
+        candidates: list[BBox] = []
+
+        # ABOVE the union
+        if safe.top - (u_top + margin) >= min_height:
+            candidates.append(BBox(safe.left, safe.right, u_top + margin, safe.top))
+        # BELOW the union
+        if (u_bottom - margin) - safe.bottom >= min_height:
+            candidates.append(BBox(safe.left, safe.right, safe.bottom, u_bottom - margin))
+        # LEFT strip (full height, left of union)
+        if (u_left - margin) - safe.left >= min_width:
+            candidates.append(BBox(safe.left, u_left - margin, safe.bottom, safe.top))
+        # RIGHT strip
+        if safe.right - (u_right + margin) >= min_width:
+            candidates.append(BBox(u_right + margin, safe.right, safe.bottom, safe.top))
+
+        if not candidates:
+            return None
+        # Largest area wins
+        return max(candidates,
+                   key=lambda b: (b.right - b.left) * (b.top - b.bottom))
 
     # -- category helpers --------------------------------------------------
 
