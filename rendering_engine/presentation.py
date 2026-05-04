@@ -122,15 +122,35 @@ def _with_shadow(content: VGroup) -> VGroup:
 
 
 def _clamp_to_safe_area(group: VGroup) -> None:
-    """Clamp a content group so its top stays below the topic header and
-    scale down if it exceeds the safe area height."""
+    """Clamp a content group so it fits inside the safe area on all sides."""
+    from rendering_engine.styles import SAFE_AREA_LEFT, SAFE_AREA_RIGHT
+
+    safe_height = SAFE_AREA_TOP - SAFE_AREA_BOTTOM
+    safe_width = SAFE_AREA_RIGHT - SAFE_AREA_LEFT
+
+    # Scale down to fit width (file22-style left-edge-clipped comparison bug:
+    # 2-column layouts with long titles + 1.5-unit gutter often exceed
+    # safe_width, then no shift can recover them — they need a scale).
+    if group.width > safe_width:
+        group.scale(safe_width / group.width)
+
+    # Top clamp
     g_top = group.get_top()[1]
     if g_top > SAFE_AREA_TOP:
         group.shift([0, SAFE_AREA_TOP - g_top, 0])
-    safe_height = SAFE_AREA_TOP - SAFE_AREA_BOTTOM
+
+    # Height scale + recenter vertically if still too tall
     if group.height > safe_height:
         group.scale(safe_height / group.height)
         group.move_to([group.get_center()[0], (SAFE_AREA_TOP + SAFE_AREA_BOTTOM) / 2, 0])
+
+    # Horizontal recenter if escaped sides
+    g_left = group.get_left()[0]
+    g_right = group.get_right()[0]
+    if g_left < SAFE_AREA_LEFT:
+        group.shift([SAFE_AREA_LEFT - g_left, 0, 0])
+    elif g_right > SAFE_AREA_RIGHT:
+        group.shift([SAFE_AREA_RIGHT - g_right, 0, 0])
 
 
 def fit_text_to_box(
@@ -517,6 +537,7 @@ def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None
     content = VGroup(*parts).arrange(DOWN, buff=0.5)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
+    _avoid_collision(state, group)
     state.register(f"comparison_{action.title or 'cmp'}", group)
 
     if title_mob:

@@ -329,6 +329,30 @@ class SceneState:
         )
         self._hidden.clear()
 
+    def dim_persistent(self, scene, opacity: float = 0.22) -> None:
+        """Fade persistent objects to a dimmed opacity so slide-style
+        content overlays read clearly on top.
+
+        Used in HYBRID scenes (slide content + retention actions on
+        existing topology) to prevent text-vs-box overlap. Different from
+        hide_persistent: keeps boxes faintly visible so the viewer
+        doesn't lose continuity with prior scenes.
+        """
+        to_dim = [
+            (k, v) for k, v in self.objects.items()
+            if self._categories.get(k) == "persistent"
+            and not k.startswith("__")
+        ]
+        if not to_dim:
+            return
+        scene.play(
+            *[mob.animate.set_opacity(opacity) for _, mob in to_dim],
+            run_time=0.3,
+        )
+        # Track via _hidden so a later restore_persistent brings them back.
+        for k, _ in to_dim:
+            self._hidden.add(k)
+
     # -- category helpers --------------------------------------------------
 
     def clear_presentation(self, scene) -> None:

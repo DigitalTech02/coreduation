@@ -151,19 +151,19 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
         return
 
     scene_refs = _extract_scene_refs(actions)
-    scene_uses_persistent = bool(persistent_ids & scene_refs)
+    refs_persistent = bool(persistent_ids & scene_refs)
+    has_full_canvas = _scene_has_full_canvas_action(actions)
 
-    # Slide-style scenes (full canvas) hide leftover topology ONLY when the
-    # scene doesn't reference persistent objects via retention actions
-    # (dim_except, pulse_element, add_callout, etc.). When the LLM combines
-    # a show_text_block with a dim_except on persistent IDs, it intends both
-    # slide content AND persistent visualization (e.g. a "Defense Holds"
-    # title overlaying dimmed topology). Honour the intent: keep persistent
-    # visible and let _avoid_collision relocate the slide text.
-    if _scene_has_full_canvas_action(actions) and not scene_refs & persistent_ids:
-        scene_uses_persistent = False
+    # Three modes:
+    #   PURE PERSISTENT — topology + retention only → keep persistent at full opacity.
+    #   PURE SLIDE      — slide content, no persistent refs → hide persistent.
+    #   HYBRID          — slide content + retention refs to persistent → DIM persistent
+    #                     so the slide text reads cleanly on top, instead of overlapping
+    #                     the boxes (file21/23/24 overlap bug).
+    is_hybrid = has_full_canvas and refs_persistent
+    is_pure_persistent = refs_persistent and not has_full_canvas
 
-    if scene_uses_persistent:
+    if is_pure_persistent:
         if state._hidden:
             state.restore_persistent(scene)
         try:
@@ -175,7 +175,19 @@ def _auto_toggle_persistent(scene: Any, state: SceneState, actions: list[dict]) 
                 state._parallax_updater = updater
         except Exception:
             pass
-    else:
+    elif is_hybrid:
+        # Dim persistent so slide-style content overlays read clearly. Skip
+        # parallax — slide text doesn't drift, so neither should the bg.
+        state.dim_persistent(scene, opacity=0.22)
+        try:
+            from rendering_engine.easing import remove_parallax
+            existing = getattr(state, "_parallax_updater", None)
+            if existing is not None:
+                remove_parallax(scene, existing)
+                state._parallax_updater = None
+        except Exception:
+            pass
+    else:  # pure slide (no persistent refs) — hide entirely
         if not state._hidden:
             state.hide_persistent(scene)
         try:
