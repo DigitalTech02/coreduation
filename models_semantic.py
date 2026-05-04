@@ -560,7 +560,10 @@ class SemanticScene(BaseModel):
     narration: str
     visual_description: str
     actions: list[VisualAction]
-    estimated_duration: float
+    # Optional: the LLM occasionally omits this. It's only used as a fallback
+    # before TTS measures the actual audio duration; the real timing always
+    # comes from audio_duration once available.
+    estimated_duration: float = 12.0
 
     voice_mood: str = ""
     music_mood: str = ""
@@ -614,7 +617,7 @@ class EnrichedScene(BaseModel):
     narration: str
     visual_description: str
     actions: list[VisualAction]
-    estimated_duration: float
+    estimated_duration: float = 12.0
     audio_path: str | None = None
     audio_duration: float | None = None
     video_path: str | None = None
