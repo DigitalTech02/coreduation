@@ -626,6 +626,11 @@ class EnrichedScene(BaseModel):
     image_prompt: str = ""
     pause_after: float = 0.0
     narration_pace: str = "normal"
+    # Whisper word-level alignment from this scene's TTS audio.  Populated
+    # by main.py after TTS when ENABLE_SUBTITLE_ALIGNMENT is on.  Each
+    # element: {"start": float, "end": float, "text": str}.  Drives
+    # subtitle timing in the rendering engine.
+    whisper_words: list[dict] = Field(default_factory=list)
 
     @field_validator("type", mode="before")
     @classmethod

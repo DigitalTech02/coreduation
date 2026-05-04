@@ -89,9 +89,30 @@ ENABLE_WATERMARK: bool = _bool("ENABLE_WATERMARK", True)
 ENABLE_THEMED_BACKGROUNDS: bool = _bool("ENABLE_THEMED_BACKGROUNDS", True)
 ENABLE_GRADIENT_BACKGROUND: bool = _bool("ENABLE_GRADIENT_BACKGROUND", True)
 
+# Animated background particle field
+ENABLE_BACKGROUND_PARTICLES: bool = _bool("ENABLE_BACKGROUND_PARTICLES", True)
+BACKGROUND_PARTICLE_COUNT: int = _int("BACKGROUND_PARTICLE_COUNT", 22)
+
+# Margin-zone ambient decorations (stars, polygons, circles)
+ENABLE_AMBIENT_DECOR: bool = _bool("ENABLE_AMBIENT_DECOR", True)
+AMBIENT_DECOR_COUNT: int = _int("AMBIENT_DECOR_COUNT", 6)
+
+# Per-scene keyword burst (large faint background word).
+# DISABLED — explicit user feedback (2026-05-04): the dimmed background word
+# at very large font competes with the actual content on the canvas, even
+# when relocated to a "vacant" region. Kept as a flag for future experiments
+# but defaults OFF. Do not enable without re-validating against frames.
+ENABLE_KEYWORD_BURST: bool = _bool("ENABLE_KEYWORD_BURST", False)
+
 # Whisper-aligned kinetic typography
 ENABLE_KINETIC_SUBTITLES: bool = _bool("ENABLE_KINETIC_SUBTITLES", False)
 WHISPER_MODEL: str = _str("WHISPER_MODEL", "base")
+
+# Whisper word-level alignment for SCHEDULED subtitles (different from
+# kinetic above — this drives the regular phrase-chunk subtitle scheduler
+# with REAL spoken-word timestamps instead of word-count proportional
+# estimates. Eliminates subtitle/narration drift.  Requires whisper.
+ENABLE_SUBTITLE_ALIGNMENT: bool = _bool("ENABLE_SUBTITLE_ALIGNMENT", True)
 
 # Multi-voice TTS (per-scene mood)
 ENABLE_MULTI_VOICE: bool = _bool("ENABLE_MULTI_VOICE", True)
@@ -112,9 +133,20 @@ ENABLE_AI_BROLL: bool = _bool("ENABLE_AI_BROLL", False)
 BROLL_IMAGE_MODEL: str = _str("BROLL_IMAGE_MODEL", "dall-e-3")
 
 # 3D topology
-ENABLE_3D_TOPOLOGY: bool = _bool("ENABLE_3D_TOPOLOGY", False)
+ENABLE_3D_TOPOLOGY: bool = _bool("ENABLE_3D_TOPOLOGY", True)
 
-# Remotion chrome (intro/outro/lower-thirds rendered by Node project)
+# Isometric drop-shadow on cards / boxed content (cheap depth)
+ENABLE_ISOMETRIC_SHADOW: bool = _bool("ENABLE_ISOMETRIC_SHADOW", True)
+
+# Export final video to Youtube_Upload/videos/ for the standalone uploader
+ENABLE_YOUTUBE_UPLOAD_EXPORT: bool = _bool("ENABLE_YOUTUBE_UPLOAD_EXPORT", True)
+
+# Remotion chrome (intro/outro/lower-thirds rendered by Node project).
+# DISABLED by default (user feedback 2026-05-04): Manim already renders an
+# intro card + title card + outro card inside ``final_semantic.mp4`` via
+# ``play_intro_card`` / ``play_outro_card`` in the scene runner. Layering
+# Remotion chrome on top duplicates both ends of the video. Re-enable only
+# when the Manim intro/outro have been suppressed (e.g. via custom build).
 ENABLE_REMOTION_CHROME: bool = _bool("ENABLE_REMOTION_CHROME", False)
 REMOTION_INTRO_DURATION: float = _float("REMOTION_INTRO_DURATION", 3.0)
 REMOTION_OUTRO_DURATION: float = _float("REMOTION_OUTRO_DURATION", 4.0)

@@ -103,10 +103,53 @@ def build_description(
 # Auth
 # ---------------------------------------------------------------------------
 
+# Search order for OAuth client secret JSON.  The standalone uploader at
+# ``Youtube_Upload/youtubeupload4.py`` already uses ``client_secrets.json``
+# (note the plural — Google's downloaded file uses both naming conventions
+# depending on console version), so we look for both and in both locations.
+_SECRET_SEARCH_PATHS = (
+    "client_secret.json",
+    "client_secrets.json",
+    "Youtube_Upload/client_secret.json",
+    "Youtube_Upload/client_secrets.json",
+)
+
+# Search order for cached OAuth token.  The standalone uploader caches a
+# ``token.pickle``; the in-pipeline uploader writes ``youtube_token.json``.
+# We accept either to avoid a second consent flow when both exist.
+_TOKEN_SEARCH_PATHS = (
+    "youtube_token.json",
+    "Youtube_Upload/youtube_token.json",
+    "Youtube_Upload/token.pickle",
+    "token.pickle",
+)
+
+
+def _find_first(paths) -> Path | None:
+    for p in paths:
+        candidate = Path(p)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_credentials_from(token_path: Path, scopes):
+    """Load OAuth credentials from either a .json or a .pickle token file."""
+    from google.oauth2.credentials import Credentials
+
+    if token_path.suffix.lower() == ".pickle":
+        import pickle
+        with open(token_path, "rb") as f:
+            creds = pickle.load(f)
+        # token.pickle from the standalone uploader is already a
+        # google.oauth2.credentials.Credentials object — return as-is.
+        return creds
+    return Credentials.from_authorized_user_file(str(token_path), scopes)
+
+
 def _get_service():
     try:
         from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
     except ImportError:
@@ -116,35 +159,53 @@ def _get_service():
         )
         return None
 
-    token_path = Path(os.getenv("YOUTUBE_TOKEN_FILE", "youtube_token.json"))
-    secret_path = Path(os.getenv("YOUTUBE_CLIENT_SECRET", "client_secret.json"))
+    token_env = os.getenv("YOUTUBE_TOKEN_FILE")
+    if token_env:
+        token_path = Path(token_env) if Path(token_env).exists() else None
+    else:
+        token_path = _find_first(_TOKEN_SEARCH_PATHS)
+
+    secret_env = os.getenv("YOUTUBE_CLIENT_SECRET")
+    if secret_env and Path(secret_env).exists():
+        secret_path = Path(secret_env)
+    else:
+        secret_path = _find_first(_SECRET_SEARCH_PATHS)
 
     creds = None
-    if token_path.exists():
+    if token_path is not None:
         try:
-            creds = Credentials.from_authorized_user_file(str(token_path), _SCOPES)
+            creds = _load_credentials_from(token_path, _SCOPES)
+            logger.info("YouTube auth: loaded cached token from %s", token_path)
         except Exception as e:
-            logger.warning("Could not load cached YouTube token: %s", e)
+            logger.warning("Could not load cached YouTube token (%s): %s", token_path, e)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    if not creds or not getattr(creds, "valid", False):
+        if creds and getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
             try:
                 creds.refresh(Request())
+                logger.info("YouTube auth: refreshed expired token")
             except Exception as e:
                 logger.warning("YouTube token refresh failed: %s", e)
                 creds = None
         if not creds:
-            if not secret_path.exists():
+            if secret_path is None:
                 logger.error(
-                    "YouTube upload requires OAuth client secret at %s. "
-                    "Download from Google Cloud Console.", secret_path,
+                    "YouTube upload requires an OAuth client secret. Searched: %s",
+                    ", ".join(_SECRET_SEARCH_PATHS),
                 )
                 return None
+            logger.info("YouTube auth: starting consent flow with %s", secret_path)
             flow = InstalledAppFlow.from_client_secrets_file(str(secret_path), _SCOPES)
             creds = flow.run_local_server(port=0)
 
+        # Persist the (possibly refreshed) token back to where we found it
+        # if it was JSON; otherwise write the canonical youtube_token.json.
         try:
-            token_path.write_text(creds.to_json(), encoding="utf-8")
+            persist_path = (
+                token_path if token_path and token_path.suffix.lower() == ".json"
+                else Path("youtube_token.json")
+            )
+            persist_path.write_text(creds.to_json(), encoding="utf-8")
         except Exception as e:
             logger.debug("Could not persist YouTube token: %s", e)
 

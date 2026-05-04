@@ -180,6 +180,40 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     from narration_processor import validate_narration_density
     validate_narration_density(script.scenes)
 
+    # Per-scene Whisper alignment — gives the rendering engine real
+    # spoken-word timestamps so subtitle chunks anchor to actual audio
+    # progression instead of evenly-divided estimates.  Cached by file
+    # hash so re-runs are instant.
+    try:
+        from config import ENABLE_SUBTITLE_ALIGNMENT
+    except Exception:
+        ENABLE_SUBTITLE_ALIGNMENT = False
+    if ENABLE_SUBTITLE_ALIGNMENT:
+        try:
+            from whisper_align import align_words
+            for scene in script.scenes:
+                if not scene.audio_path:
+                    continue
+                try:
+                    timings = align_words(scene.audio_path)
+                    if timings:
+                        scene.whisper_words = [
+                            {"start": w.start, "end": w.end, "text": w.text}
+                            for w in timings
+                        ]
+                        logger.info(
+                            "Whisper aligned scene '%s': %d words",
+                            scene.scene_id, len(timings),
+                        )
+                except Exception as e:
+                    logger.debug(
+                        "Whisper alignment for %s failed: %s; "
+                        "subtitles will use proportional fallback",
+                        scene.scene_id, e,
+                    )
+        except Exception as e:
+            logger.warning("Whisper alignment skipped: %s", e)
+
     scene_paths = [s.audio_path for s in script.scenes if s.audio_path]
     scene_actions = [
         [a.model_dump(by_alias=True) for a in s.actions]
@@ -318,6 +352,7 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     except Exception as e:
         logger.debug("Remotion chrome step skipped: %s", e)
 
+    thumb_path: Path | None = None
     if ENABLE_THUMBNAIL_GEN:
         try:
             from thumbnail_generator import generate_thumbnail
@@ -331,6 +366,24 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
             logger.info("Thumbnail -> %s", thumb_path)
         except Exception as e:
             logger.warning("Thumbnail generation skipped: %s", e)
+            thumb_path = None
+
+    # Export to Youtube_Upload/videos/ for the standalone uploader script.
+    try:
+        from config import ENABLE_YOUTUBE_UPLOAD_EXPORT
+    except Exception:
+        ENABLE_YOUTUBE_UPLOAD_EXPORT = True
+    if ENABLE_YOUTUBE_UPLOAD_EXPORT:
+        try:
+            from youtube_upload_export import export_for_youtube_upload
+            export_for_youtube_upload(
+                final_video=final_path,
+                script=script,
+                topic=topic,
+                thumbnail_path=str(thumb_path) if thumb_path else None,
+            )
+        except Exception as e:
+            logger.warning("Youtube_Upload export skipped: %s", e)
 
     if ENABLE_DUBS and DUB_LANGUAGES.strip():
         try:

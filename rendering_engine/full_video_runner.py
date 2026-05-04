@@ -40,6 +40,12 @@ class FullSemanticVideo(MovingCameraScene):
         else:
             self.camera.background_color = BG_COLOR
 
+        try:
+            from rendering_engine.ambient import apply_margin_decor
+            apply_margin_decor(self, category)
+        except Exception as e:
+            logger.debug("Ambient margin decor skipped: %s", e)
+
         self.camera.frame.set_width(14.2)
 
         run_full_video_construct(self, data)

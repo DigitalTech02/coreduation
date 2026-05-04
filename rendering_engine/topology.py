@@ -256,6 +256,26 @@ def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
 
     group = VGroup(shape, text_bg, *text_parts)
     _clamp_node_into_safe_area(group)
+
+    # Cheap depth: drop a couple of dark offset copies of just the shape
+    # behind the existing group via add_to_back so update_node's `mob[0]`
+    # contract still holds (shape stays at index 0).
+    try:
+        from config import ENABLE_ISOMETRIC_SHADOW
+    except Exception:
+        ENABLE_ISOMETRIC_SHADOW = True
+    if ENABLE_ISOMETRIC_SHADOW:
+        try:
+            for i in (2, 1):
+                shadow = shape.copy()
+                shadow.set_color("#000000")
+                shadow.set_fill("#000000", opacity=0.22 - (i - 1) * 0.06)
+                shadow.set_stroke(width=0)
+                shadow.shift([0.07 * i, -0.07 * i, 0])
+                group.add_to_back(shadow)
+        except Exception:
+            pass
+
     state.register(action.id, group)
     scene.play(FadeIn(group), run_time=FADE_DURATION)
 

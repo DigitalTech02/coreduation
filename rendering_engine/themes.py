@@ -3,13 +3,15 @@
 Replaces the "one accent color per category" approach with cohesive themes so
 each category looks visually distinct.
 
-Also provides an animated gradient backdrop that subtly drifts in hue over
-time — drives polish at near-zero compute cost.
+Also provides an animated gradient backdrop with a slowly drifting particle
+field — both run at near-zero compute cost via Manim updaters.
 """
 
 from __future__ import annotations
 
 import logging
+import math
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +20,7 @@ from manim import (
     BLUE_B,
     BLUE_E,
     DOWN,
+    Dot,
     GREEN,
     GREEN_B,
     GREEN_E,
@@ -39,7 +42,9 @@ from manim import (
     UP,
     YELLOW,
     YELLOW_B,
+    Line,
     Rectangle,
+    RegularPolygon,
     VGroup,
 )
 
@@ -179,7 +184,7 @@ def get_theme(category: str) -> Theme:
 # ---------------------------------------------------------------------------
 
 def apply_themed_background(scene: Any, category: str = "") -> Any | None:
-    """Set up a vertical-gradient background for the whole video.
+    """Set up a vertical-gradient background, plus optional particle field.
 
     Returns the gradient mobject (added at the back) so callers can keep a
     reference if they want to tween it later, or ``None`` if disabled.
@@ -220,7 +225,90 @@ def apply_themed_background(scene: Any, category: str = "") -> Any | None:
                 pass
 
         bg.add_updater(_drift)
-        return bg
     except Exception as e:
         logger.debug("Themed background skipped: %s", e)
-        return None
+        bg = None
+
+    # ------------------------------------------------------------------
+    # Particle field — slow-drifting dots at z=-90 (behind decor at -60,
+    # behind content at 0+, in front of gradient at -100).
+    # ------------------------------------------------------------------
+    try:
+        from config import BACKGROUND_PARTICLE_COUNT, ENABLE_BACKGROUND_PARTICLES
+    except Exception:
+        ENABLE_BACKGROUND_PARTICLES = True
+        BACKGROUND_PARTICLE_COUNT = 22
+
+    if ENABLE_BACKGROUND_PARTICLES:
+        try:
+            _add_particle_field(scene, theme, count=BACKGROUND_PARTICLE_COUNT)
+        except Exception as e:
+            logger.debug("Particle field skipped: %s", e)
+
+    return bg
+
+
+# ---------------------------------------------------------------------------
+# Particle field
+# ---------------------------------------------------------------------------
+
+# Safe area where text/diagrams live — particles stay outside (or are very
+# faint inside) so they never compete with content.
+_PARTICLE_SAFE_X = 5.5
+_PARTICLE_SAFE_Y = 2.6
+
+
+def _add_particle_field(scene: Any, theme: "Theme", count: int = 22) -> None:
+    """Slowly drifting dots scattered across the canvas, mostly in the margins.
+
+    Each dot has its own tiny sin-wave updater so the field never repeats
+    cleanly — gives an organic ambient feel.  Z-index −90.
+    """
+    rng = random.Random(0xC07E + (sum(ord(c) for c in theme.name) if theme.name else 0))
+
+    palette = [theme.primary, theme.secondary, theme.accent]
+    palette = [p for p in palette if p]
+
+    for i in range(max(1, count)):
+        # Bias placement toward the margins; reject samples that would land
+        # squarely in the safe area where content sits.
+        for _ in range(6):
+            x = rng.uniform(-7.5, 7.5)
+            y = rng.uniform(-3.7, 3.7)
+            in_safe = abs(x) < _PARTICLE_SAFE_X and abs(y) < _PARTICLE_SAFE_Y
+            if not in_safe:
+                break
+
+        radius = rng.uniform(0.018, 0.055)
+        color = palette[i % len(palette)] if palette else theme.primary
+        opacity = rng.uniform(0.18, 0.42)
+        if abs(x) < _PARTICLE_SAFE_X and abs(y) < _PARTICLE_SAFE_Y:
+            opacity *= 0.35  # very faint when inside content area
+
+        dot = Dot(point=[x, y, 0], radius=radius, color=color)
+        dot.set_fill(color, opacity=opacity)
+        dot.set_stroke(width=0)
+        dot.set_z_index(-90)
+
+        # Per-dot drift parameters — period and amplitude vary so the field
+        # doesn't pulse in lockstep.
+        amp_x = rng.uniform(0.05, 0.25)
+        amp_y = rng.uniform(0.05, 0.20)
+        period = rng.uniform(8.0, 22.0)
+        phase = rng.uniform(0.0, math.tau)
+        anchor = (x, y)
+        state_t = [0.0]
+
+        def _drift(mob, dt, _amp_x=amp_x, _amp_y=amp_y,
+                   _period=period, _phase=phase, _anchor=anchor, _t=state_t):
+            _t[0] += dt
+            try:
+                t = _t[0]
+                ox = _amp_x * math.sin(2 * math.pi * t / _period + _phase)
+                oy = _amp_y * math.cos(2 * math.pi * t / _period * 0.7 + _phase)
+                mob.move_to([_anchor[0] + ox, _anchor[1] + oy, 0])
+            except Exception:
+                pass
+
+        dot.add_updater(_drift)
+        scene.add(dot)

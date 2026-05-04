@@ -115,20 +115,22 @@ def _scene_has_full_canvas_action(actions: list[dict]) -> bool:
 
 
 def _toggle_persistent_topic_header(state: SceneState, suppress: bool) -> None:
-    """Hide or show the persistent topic header.
+    """Keep the persistent topic header visible across all scenes.
 
-    Slide-style scenes (full canvas) suppress it so the scene title doesn't
-    fight with a tiny duplicate header at the top edge.  The header keeps its
-    anchor updater either way — only opacity changes.
+    Per user feedback (2026-05-04): the topic header must be visible for
+    the entire video as a continuity anchor — it's the only thing telling
+    a viewer who joins mid-video what they're watching. Previously we
+    hid it on slide-style scenes; now we always show it, regardless of
+    *suppress*. Slide-style renderers must keep their scene-title text
+    inside ``TITLE_ZONE`` so it doesn't collide with the header band.
     """
     header = state.objects.get(_TOPIC_HEADER_KEY)
     if header is None:
         return
-    target = 0.0 if suppress else 1.0
     try:
         for sub in header.submobjects:
-            sub.set_opacity(target)
-        header.set_opacity(target)
+            sub.set_opacity(1.0)
+        header.set_opacity(1.0)
     except Exception:
         pass
 
@@ -197,7 +199,12 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
     subtitle = data.get("title_card_subtitle", "")
     category = data.get("category", "")
 
-    from rendering_engine.branding import add_watermark, play_intro_card, play_outro_card
+    from rendering_engine.branding import (
+        add_credit_label,
+        add_watermark,
+        play_intro_card,
+        play_outro_card,
+    )
     play_intro_card(scene, category)
 
     _play_title_card(scene, topic, subtitle, category)
@@ -205,6 +212,7 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
     future_refs = _collect_future_refs(scenes)
     state = SceneState()
     add_watermark(scene, state, category)
+    add_credit_label(scene, state)
 
     _add_persistent_topic_header(scene, state, topic, category)
     _add_corner_decorations(scene, state, category)
@@ -223,7 +231,43 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             state, suppress=_scene_has_full_canvas_action(actions),
         )
 
+        # Per-scene keyword burst overlay — gated by ENABLE_KEYWORD_BURST.
+        # Default OFF (user feedback 2026-05-04: large dimmed background
+        # word competes with content). Kept as opt-in for experiments.
+        keyword_mob = None
+        try:
+            from config import ENABLE_KEYWORD_BURST
+        except Exception:
+            ENABLE_KEYWORD_BURST = False
+        if ENABLE_KEYWORD_BURST:
+            try:
+                from rendering_engine.keyword_overlay import play_keyword_burst
+                keyword_mob = play_keyword_burst(scene, state, sc, category=category)
+            except Exception as e:
+                logger.debug("Keyword burst skipped: %s", e)
+
         t0 = scene.renderer.time
+
+        # Schedule subtitles BEFORE running actions so each chunk appears
+        # at its scene-relative start time even while actions are playing.
+        # Time slices are allocated proportional to chunk word count and
+        # sum to the full audio duration — so subtitle progression mirrors
+        # narration audio progression instead of being squeezed into the
+        # post-action wait window.
+        scheduled_subtitles: list = []
+        pause_after = float(sc.get("pause_after", 0.0))
+        full_subtitle_window = audio_dur + pause_after - SCENE_FADE_OUT_SECONDS
+        if ENABLE_SUBTITLES and narration and full_subtitle_window > 0.3:
+            try:
+                from rendering_engine.subtitles import schedule_subtitles_for_scene
+                scheduled_subtitles = schedule_subtitles_for_scene(
+                    scene, narration,
+                    audio_duration=full_subtitle_window,
+                    max_words=SUBTITLE_MAX_WORDS,
+                    whisper_words=sc.get("whisper_words") or None,
+                )
+            except Exception as e:
+                logger.debug("Subtitle scheduling skipped: %s", e)
 
         for action_dict in actions:
             action = _rebuild_action(action_dict)
@@ -232,20 +276,28 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             _dispatch_action(scene, state, action)
 
         elapsed = scene.renderer.time - t0
-        pause_after = float(sc.get("pause_after", 0.0))
         wait_time = max(0.0, audio_dur + pause_after - elapsed - SCENE_FADE_OUT_SECONDS)
 
-        if ENABLE_SUBTITLES and narration and wait_time > 1.0:
-            from rendering_engine.subtitles import play_subtitles_for_scene
-            play_subtitles_for_scene(
-                scene, narration, wait_time,
-                max_words=SUBTITLE_MAX_WORDS,
-                audio_path=sc.get("audio_path"),
-            )
-        elif wait_time > 0.01:
+        # Wait out the remaining audio time so the scheduled-subtitle
+        # updaters keep firing for any chunks still in their time slice.
+        if wait_time > 0.01:
             scene.wait(wait_time)
 
+        if scheduled_subtitles:
+            try:
+                from rendering_engine.subtitles import clear_scheduled_subtitles
+                clear_scheduled_subtitles(scene, scheduled_subtitles)
+            except Exception:
+                pass
+
         _reset_camera_if_needed(scene)
+
+        if keyword_mob is not None:
+            try:
+                from rendering_engine.keyword_overlay import fade_out_keyword_burst
+                fade_out_keyword_burst(scene, keyword_mob)
+            except Exception:
+                pass
 
         keep = future_refs[i] if i < len(future_refs) else set()
         _clear_scene(scene, state, keep)

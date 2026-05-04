@@ -671,6 +671,11 @@ def _serialize_script(script: EnrichedVideoScript) -> dict:
                 "actions": [a.model_dump(by_alias=True) for a in s.actions],
                 "audio_duration": s.audio_duration or s.estimated_duration,
                 "audio_path": s.audio_path,
+                # Critical for subtitle pacing: pause_after extends the
+                # subtitle window past raw audio, whisper_words drives
+                # exact subtitle-to-narration alignment.
+                "pause_after": s.pause_after or 0.0,
+                "whisper_words": list(getattr(s, "whisper_words", None) or []),
             }
             for s in script.scenes
         ],

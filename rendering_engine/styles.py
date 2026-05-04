@@ -292,6 +292,33 @@ def make_glow(mobject, color=None, scale: float = GLOW_SCALE, opacity: float = G
     return VGroup(glow, mobject)
 
 
+def make_isometric_shadow(mobject, depth: float = 0.18, layers: int = 3,
+                           opacity: float = 0.22) -> VGroup:
+    """Stack *layers* dark offset copies behind *mobject* for a 3D-card look.
+
+    Each successive copy shifts further down-right (south-east), producing
+    the classic stacked-card / extruded-block illusion without needing a
+    real ThreeDScene.  Returns ``VGroup(*shadows, original)`` so the
+    shadows render behind the original.
+    """
+    try:
+        from config import ENABLE_ISOMETRIC_SHADOW
+    except Exception:
+        ENABLE_ISOMETRIC_SHADOW = True
+    if not ENABLE_ISOMETRIC_SHADOW:
+        return VGroup(mobject)
+
+    shadows = []
+    for i in range(1, max(1, layers) + 1):
+        s = mobject.copy()
+        s.set_color(SHADOW_COLOR)
+        s.set_fill(SHADOW_COLOR, opacity=opacity * (1.0 - (i - 1) * 0.25))
+        s.set_stroke(width=0)
+        s.shift([depth * i, -depth * i, 0])
+        shadows.append(s)
+    return VGroup(*shadows, mobject)
+
+
 # ---------------------------------------------------------------------------
 # Safe area — usable rendering area excluding topic header & subtitle zones
 # ---------------------------------------------------------------------------

@@ -197,13 +197,17 @@ def fit_text_to_box(
 
 
 def _avoid_collision(scene, state, group: VGroup, margin: float = 0.20) -> VGroup:
-    """If *group* would overlap visible diagram objects, relocate it to the
-    largest vacant region (above / below / left / right of the diagram),
-    scale to fit, and wrap in a subtle card so the text reads as its own
-    content block. Animates the card into the scene with a quick fade.
+    """If *group* would overlap visible diagram objects, try in order:
 
-    Returns the group as it should be registered with the SceneState. If
-    no relocation was needed, returns the group unchanged.
+    1. Relocate to the largest vacant region (above / below / left / right
+       of the diagram), scale to fit, wrap in a card.
+    2. If no region big enough exists, hide the colliding persistent
+       objects entirely for the duration of this slide. The next scene's
+       ``_auto_toggle_persistent`` will restore them when needed.
+
+    The two-state rule (per user feedback): full diagram OR hidden — never
+    "diagram + text awkwardly stacked". Always wrap relocated/hidden-bg
+    text in a Manim card so it reads as a contained block.
     """
     from rendering_engine.engine import BBox
 
@@ -215,49 +219,97 @@ def _avoid_collision(scene, state, group: VGroup, margin: float = 0.20) -> VGrou
     )
     colliders = state.overlaps_any(bbox, margin=margin)
     if not colliders:
-        return group
+        return _wrap_in_card(scene, group, opaque=False)
 
     region = state.find_largest_vacant_region(min_width=2.5, min_height=0.8)
-    if region is None:
-        return group
 
-    avail_w = (region.right - region.left) - 2 * margin
-    avail_h = (region.top - region.bottom) - 2 * margin
-    if avail_w <= 0 or avail_h <= 0:
-        return group
+    # ------------------------------------------------------------------
+    # Path 1: usable vacant region exists — relocate + scale + card.
+    # ------------------------------------------------------------------
+    if region is not None:
+        avail_w = (region.right - region.left) - 2 * margin
+        avail_h = (region.top - region.bottom) - 2 * margin
+        if avail_w > 0 and avail_h > 0:
+            scale = min(
+                1.0,
+                avail_w / max(0.1, group.width),
+                avail_h / max(0.1, group.height),
+            )
+            if scale < 0.99:
+                group.scale(max(0.65, scale * 0.97))
 
-    # Scale to fit the vacant region (preserve aspect; no upscale).
-    # Floor at 0.65 so text doesn't shrink below readable: large titles
-    # (40pt) stay at >= 26pt, body (26pt) stays at >= 17pt. We'd rather
-    # nudge slightly past the region edge than make the text unreadable.
-    scale = min(1.0, avail_w / max(0.1, group.width), avail_h / max(0.1, group.height))
-    if scale < 0.99:
-        group.scale(max(0.65, scale * 0.97))
+            target_x = (region.left + region.right) / 2
+            target_y = (region.bottom + region.top) / 2
+            cx, cy = group.get_center()[0], group.get_center()[1]
+            group.shift([target_x - cx, target_y - cy, 0])
 
-    # Recenter into the region.
-    target_x = (region.left + region.right) / 2
-    target_y = (region.bottom + region.top) / 2
-    cx, cy = group.get_center()[0], group.get_center()[1]
-    group.shift([target_x - cx, target_y - cy, 0])
+            # Re-check after relocation — if the region was estimated and
+            # the text actually still overlaps something, fall through to
+            # path 2 instead of leaving a broken layout on screen.
+            new_bbox = BBox(
+                group.get_left()[0], group.get_right()[0],
+                group.get_bottom()[1], group.get_top()[1],
+            )
+            if not state.overlaps_any(new_bbox, margin=margin):
+                return _wrap_in_card(scene, group, opaque=True)
 
-    # Wrap in a subtle card so the relocated text reads as a contained block.
-    from manim import FadeIn, RoundedRectangle
-    card = RoundedRectangle(
-        width=group.width + 0.4,
-        height=group.height + 0.3,
-        corner_radius=0.10,
-        stroke_width=1.2,
-        stroke_color=MUTED,
-        stroke_opacity=0.45,
-        fill_color=BG_COLOR,
-        fill_opacity=0.78,
-    )
-    card.move_to(group.get_center())
+    # ------------------------------------------------------------------
+    # Path 2: canvas too crowded — hide the persistent topology, recentre
+    # the text to mid-canvas, and wrap in a fully opaque card.  The next
+    # scene's _auto_toggle_persistent restores topology if still needed.
+    # ------------------------------------------------------------------
     try:
-        scene.play(FadeIn(card), run_time=0.20)
+        state.hide_persistent(scene)
     except Exception:
         pass
-    return VGroup(card, group)
+
+    # Recenter the (possibly already scaled) group to the canvas centre.
+    cx, cy = group.get_center()[0], group.get_center()[1]
+    group.shift([0 - cx, 0 - cy, 0])
+    return _wrap_in_card(scene, group, opaque=True)
+
+
+def _wrap_in_card(scene, group: VGroup, *, opaque: bool) -> VGroup:
+    """Wrap *group* in a rounded-rect card with isometric drop-shadow.
+
+    ``opaque=True`` uses near-opaque fill so the card occludes anything
+    behind it cleanly (used when the text was relocated or topology was
+    hidden).  ``opaque=False`` is a subtle border-only treatment used
+    when no overlap was detected.
+    """
+    from manim import FadeIn, RoundedRectangle
+
+    from rendering_engine.styles import make_isometric_shadow
+
+    if opaque:
+        card = RoundedRectangle(
+            width=group.width + 0.55,
+            height=group.height + 0.45,
+            corner_radius=0.12,
+            stroke_width=1.5,
+            stroke_color=MUTED,
+            stroke_opacity=0.55,
+            fill_color=BG_COLOR,
+            fill_opacity=0.96,
+        )
+    else:
+        card = RoundedRectangle(
+            width=group.width + 0.4,
+            height=group.height + 0.3,
+            corner_radius=0.10,
+            stroke_width=1.0,
+            stroke_color=MUTED,
+            stroke_opacity=0.30,
+            fill_color=BG_COLOR,
+            fill_opacity=0.0,
+        )
+    card.move_to(group.get_center())
+    card_with_shadow = make_isometric_shadow(card, depth=0.10, layers=2, opacity=0.30)
+    try:
+        scene.play(FadeIn(card_with_shadow), run_time=0.20)
+    except Exception:
+        pass
+    return VGroup(card_with_shadow, group)
 
 
 # ---------------------------------------------------------------------------
