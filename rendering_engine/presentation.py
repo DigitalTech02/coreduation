@@ -333,15 +333,25 @@ def _build_code_lines(lines: list[str], max_h: float):
             chosen_font, chosen_buff = font_size, buff
             break
 
+    # First, build a reference line so we can measure proper row height.
+    # Empty / whitespace-only lines render as ~zero-height mobjects in Manim
+    # (even " " is shorter than a normal line), which collapses arrange()'s
+    # row spacing and causes neighbouring code lines to overlap on screen.
+    # We use the reference height for any blank line so the row takes its
+    # full vertical slot but stays invisible.
+    from manim import Rectangle
+    ref = Text("Ag", font_size=chosen_font, font=FONT_MONO, color=WHITE)
+    ref_h = ref.height
+
     code_mobs = []
     for line_text in lines:
-        # Empty strings render as zero-height mobjects in Manim, which
-        # collapses the buff-only spacing between them and the lines on
-        # either side — adjacent code lines end up overlapping. Substitute
-        # a single space so the line takes a real row of vertical space.
-        text_to_render = line_text if line_text.strip() else " "
-        lm = Text(text_to_render, font_size=chosen_font, font=FONT_MONO, color=WHITE)
-        lm.set_opacity(0.88 if line_text.strip() else 0.0)
+        if line_text.strip():
+            lm = Text(line_text, font_size=chosen_font, font=FONT_MONO, color=WHITE)
+            lm.set_opacity(0.88)
+        else:
+            # Invisible spacer with proper line height so arrange() lays out
+            # subsequent lines at the correct y-offset.
+            lm = Rectangle(width=0.01, height=ref_h, stroke_width=0, fill_opacity=0)
         if lm.width > _CODE_LINE_MAX_WIDTH:
             lm.set_width(_CODE_LINE_MAX_WIDTH)
         code_mobs.append(lm)
