@@ -335,8 +335,13 @@ def _build_code_lines(lines: list[str], max_h: float):
 
     code_mobs = []
     for line_text in lines:
-        lm = Text(line_text, font_size=chosen_font, font=FONT_MONO, color=WHITE)
-        lm.set_opacity(0.88)
+        # Empty strings render as zero-height mobjects in Manim, which
+        # collapses the buff-only spacing between them and the lines on
+        # either side — adjacent code lines end up overlapping. Substitute
+        # a single space so the line takes a real row of vertical space.
+        text_to_render = line_text if line_text.strip() else " "
+        lm = Text(text_to_render, font_size=chosen_font, font=FONT_MONO, color=WHITE)
+        lm.set_opacity(0.88 if line_text.strip() else 0.0)
         if lm.width > _CODE_LINE_MAX_WIDTH:
             lm.set_width(_CODE_LINE_MAX_WIDTH)
         code_mobs.append(lm)
