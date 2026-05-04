@@ -7,7 +7,7 @@ AI-driven educational video pipeline. An LLM emits a structured action JSON; a d
 | Engine | Flow | Status |
 |---|---|---|
 | `--engine legacy` | LLM → raw Manim code → `error_healer` → per-scene render → `video_stitcher` | Maintained but not the focus |
-| `--engine semantic` | LLM → action JSON → `semantic_repair` → `semantic_validation` → TTS → `semantic_audio` → single Manim Scene → vision QA → mux → chrome → thumbnail → dubs → YouTube | **Active** (`semantic-engine-v6`) |
+| `--engine semantic` | LLM → action JSON → `semantic_repair` → `semantic_validation` → TTS → whisper-align → `semantic_audio` → single Manim Scene → frame validator → auto-fix → vision QA → mux → chrome → thumbnail → YouTube export → dubs → YouTube upload | **Active** (`semantic-engine-v8`) |
 
 Run: `python main.py --topic "TCP three-way handshake" --engine semantic --category networking`
 
@@ -18,9 +18,10 @@ Run: `python main.py --topic "TCP three-way handshake" --engine semantic --categ
 3. **Retention enrichment** — `retention.ensure_retention_beats()` injects pulse/focus/shake when a scene exceeds `MAX_IDLE_VISUAL_SECONDS`.
 4. **TTS** — `tts_generator.generate_speech()` per scene; voice swapped by `scene.voice_mood`, speed by `scene.narration_pace`. OpenAI or ElevenLabs. Cached on `(text, voice, model, speed)` — **speed is part of the key, do not drop it**.
 5. **Density check** — `narration_processor.validate_narration_density()` warns on >145 WPM scenes.
-6. **Audio mux** — `semantic_audio.build_semantic_narration_track()` concatenates per-scene MP3s, inserts `SCENE_GAP_SECONDS + scene.pause_after` of silence between scenes, overlays SFX (keyed by action type) and mood-matched background music (per-scene swap allowed).
-7. **Render** — `rendering_engine.engine.render_full_semantic_video()` invokes Manim on a single Scene class (`rendering_engine.full_video_scene`) that processes every scene with cross-scene object persistence.
-8. **Post** — optional `vision_qa` (GPT-4o frame sampling), `chrome_compositor` (Remotion intro/outro concat), `thumbnail_generator`, `dubs.generate_language_dubs`, `youtube_uploader`.
+6. **Whisper alignment** — `whisper_align.align_words()` runs per scene when `ENABLE_SUBTITLE_ALIGNMENT` is on; populates `scene.whisper_words` so subtitle chunks anchor to real spoken-word timestamps in the rendering engine. Cached by audio hash.
+7. **Audio mux** — `semantic_audio.build_semantic_narration_track()` concatenates per-scene MP3s, inserts `SCENE_GAP_SECONDS + scene.pause_after` of silence between scenes, overlays SFX (keyed by action type) and mood-matched background music (per-scene swap allowed).
+8. **Render** — `rendering_engine.engine.render_full_semantic_video()` invokes Manim on a single Scene class (`rendering_engine.full_video_scene`) that processes every scene with cross-scene object persistence. The runner applies themed gradient + drifting particles + ambient margin decor before scene playback. Subtitles are scheduled per-scene via updaters that toggle visibility against `(scene.renderer.time - scene_start)`, so chunks track audio progression instead of post-action wait.
+9. **Post** — `frame_validator` (deterministic per-scene frame sampling), `auto_fix` (retry loop for QA failures), `vision_qa` (GPT-4o frame sampling), `chrome_compositor` (Remotion intro/outro — **disabled by default**, since Manim already renders intro+title+outro inside `final_semantic.mp4`), `thumbnail_generator`, `youtube_upload_export` (copies output into `Youtube_Upload/videos/` for the standalone uploader), `dubs.generate_language_dubs`, `youtube_uploader`.
 
 Output lands in `output/<YYYYMMDD_HHMMSS>_semantic_<slug>/`.
 
@@ -61,14 +62,21 @@ rendering_engine/
   packets.py                   Packet animations
   sequence.py                  Sequence diagrams
   data_display.py              Tables
-  subtitles.py                 Phrase or Whisper word-level
-  branding.py                  Intro/outro/watermark
-  themes.py                    Per-category palettes
+  subtitles.py                 Whisper-aligned scheduled subtitles + chunked fallback (`schedule_subtitles_for_scene`)
+  branding.py                  Intro/outro/watermark + persistent "Created by Human & AI" credit label
+  themes.py                    Per-category palettes + animated gradient + drifting particle field
+  ambient.py                   Margin-zone drifting decor shapes (stars/polygons/circles, z=-60)
+  keyword_overlay.py           Large faint background watermark word — **DISABLED** (`ENABLE_KEYWORD_BURST=False`); competes with content
   effects.py                   Pattern-interrupt cuts
   easing.py                    Cubic / back / anticipation easing
   broll.py                     DALL-E + Ken Burns
   retention.py                 Beat injection
   charts/ chrome/ dashboard/ assets/    Helper subprojects (D3, Remotion, Streamlit, audio assets)
+
+frame_validator.py             Deterministic per-scene frame sampling for QA gates
+auto_fix.py                    Retry loop that re-renders scenes failing frame validation
+whisper_align.py               OpenAI Whisper word-level timestamps for subtitle alignment
+youtube_upload_export.py       Bridge: copies pipeline output into Youtube_Upload/videos/ as stitched_video_set_<N>.{mp4,txt,png}
 
 tests/
   test_spatial_registry.py     BBox, SceneState, parent/child containment
@@ -86,8 +94,14 @@ tests/
 
 ## Active branch
 
-`semantic-engine-v6` — last shipped: spatial layout engine (collision detection, diagram zones, LLM action sanitization).
-In flight (uncommitted): narration pacing — `pause_after`, `narration_pace` → TTS speed, bullet timing, WPM density warner.
+`semantic-engine-v8` — last shipped (Track 5):
+- Whisper-aligned subtitles: per-scene word timestamps drive scheduled subtitle mobjects with time-based opacity updaters; subtitle chunks now follow narration audio progression, not post-action wait.
+- Ambient visuals: drifting particle field (themes), margin-zone decor shapes (ambient.py), isometric drop-shadows on cards/topology (`make_isometric_shadow`), persistent top-left credit label, always-on topic header.
+- YouTube export bridge: pipeline outputs auto-copied into `Youtube_Upload/videos/` so the existing standalone uploader picks them up unchanged.
+- OAuth multi-path: in-pipeline uploader now searches both root and `Youtube_Upload/` for `client_secret(s).json` and reuses cached `token.pickle` from the standalone uploader.
+- Track 4: per-scene frame validator + auto-fix retry loop + structured-output QA.
+
+Visual rule (per user feedback): full diagram OR text — never "diagram + text awkwardly stacked". `_avoid_collision` in `presentation.py` either relocates text to a vacant region or hides the topology entirely; both paths wrap the result in a card with isometric shadow.
 
 ## Running
 
