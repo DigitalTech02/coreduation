@@ -81,14 +81,20 @@ MUSIC_PLAYBACK_MODE: str = _str("MUSIC_PLAYBACK_MODE", "selective")
 # Moods that get a music bed in selective mode.  Comma-separated.  Values
 # match ``music_mood`` in the LLM vocab (NOT ``voice_mood``):
 #   uplifting | tense | curious | calm | dramatic | neutral
-# Empirically across recent runs ``tense`` appears in nearly every script
-# (the hook scene) and ``dramatic`` shows up on big reveals — those are
-# the moments where music actually lifts the moment.  Curious/uplifting
-# are softer/atmospheric and feel like wallpaper if left on; off by default.
+# Default narrowed to just ``tense`` per user feedback (2026-05-04):
+# even with selective mode + dramatic scenes, the background score still
+# felt continuous.  ``tense`` reliably tags only the hook scene (verified
+# across 12 recent runs), so music plays for ~10s total in a typical
+# 4-min video.  Add "dramatic" back if you want music on big reveals too.
 MUSIC_HIGHLIGHT_MOODS: str = _str(
     "MUSIC_HIGHLIGHT_MOODS",
-    "tense,dramatic",
+    "tense",
 )
+
+# Whether selective mode adds a brief music bed under the intro card +
+# title card and under the outro card.  Off by default — the user found
+# even those short stings contributed to "continuous score" feel.
+MUSIC_INCLUDE_INTRO_OUTRO_BEDS: bool = _bool("MUSIC_INCLUDE_INTRO_OUTRO_BEDS", False)
 
 # --- Engagement upgrade ---
 

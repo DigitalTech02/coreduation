@@ -50,8 +50,14 @@ SFX_MAP: dict[str, str] = {
     "show_code_block": "keyboard_tick.mp3",
     "show_math": "sparkle_ping.mp3",
     "shake_element": "error_buzz.mp3",
-    "scene_transition": "transition_sweep.mp3",
+    # Cinematic upgrade for full scene transitions (new asset 2026-05-04).
+    "scene_transition": "whoosh_cinematic.mp3",
     "emphasize_text": "impact_pop.mp3",
+    # Pattern-interrupt actions emitted by retention.py — get punchy SFX
+    # so the visual interrupt has matching audio.
+    "flash_cut": "suspenseful_boom.mp3",
+    "zoom_punch": "cinematic_impact_hit.mp3",
+    "glitch_transition": "cinematic_impact_hit.mp3",
 }
 
 
@@ -486,7 +492,12 @@ def _build_music_track_from_manifest(
       * ``"continuous"``: legacy mode, music under every scene.
       * ``"off"``: returns ``None`` (no music track).
     """
-    from config import ENABLE_MOOD_MUSIC, MUSIC_HIGHLIGHT_MOODS, MUSIC_PLAYBACK_MODE
+    from config import (
+        ENABLE_MOOD_MUSIC,
+        MUSIC_HIGHLIGHT_MOODS,
+        MUSIC_INCLUDE_INTRO_OUTRO_BEDS,
+        MUSIC_PLAYBACK_MODE,
+    )
 
     mode = (MUSIC_PLAYBACK_MODE or "selective").strip().lower()
     if mode == "off":
@@ -523,12 +534,16 @@ def _build_music_track_from_manifest(
         return True
 
     # Leading bed [0, scene_1_start] — covers intro + title cards.
-    # Always present (in selective mode, the intro is one of the "short
-    # periods" the user wants music for).
-    lead_end_ms = int(round(video_starts[0] * 1000)) if video_starts else 0
-    if lead_end_ms > 0:
-        if _overlay_bed(0, lead_end_ms, "calm"):
-            overlaid_any = True
+    # In selective mode this is opt-in via MUSIC_INCLUDE_INTRO_OUTRO_BEDS
+    # (off by default — user feedback: even brief stings here contributed
+    # to the "continuous score" feel).  In continuous mode we always
+    # cover the leading silence so the video doesn't open in dead air.
+    include_lead_trail = (not selective) or MUSIC_INCLUDE_INTRO_OUTRO_BEDS
+    if include_lead_trail and video_starts:
+        lead_end_ms = int(round(video_starts[0] * 1000))
+        if lead_end_ms > 0:
+            if _overlay_bed(0, lead_end_ms, "calm"):
+                overlaid_any = True
 
     # Per-scene beds.  In selective mode, only scenes with a highlight mood
     # get a bed; in continuous mode, every scene does.
@@ -541,16 +556,14 @@ def _build_music_track_from_manifest(
         if i + 1 < n_scenes:
             end_ms = int(round(video_starts[i + 1] * 1000))
         else:
-            # Last scene: extend through outro
-            end_ms = total_ms
+            # Last scene: extend through outro only if intro/outro beds enabled
+            end_ms = total_ms if include_lead_trail else int(round(video_ends[i] * 1000))
         start_ms = int(round(vstart * 1000))
         if _overlay_bed(start_ms, end_ms, mood):
             overlaid_any = True
 
-    # Trailing bed for outro card if the last scene wasn't a highlight
-    # (so the video doesn't end on dead silence).  Use the last scene's
-    # video_end_seconds onwards.
-    if selective and video_ends:
+    # Trailing bed for outro card.  Same opt-in gate as the leading bed.
+    if include_lead_trail and video_ends:
         last_scene_end_ms = int(round(video_ends[-1] * 1000))
         if last_scene_end_ms < total_ms:
             if _overlay_bed(last_scene_end_ms, total_ms, "calm"):
