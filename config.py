@@ -164,6 +164,19 @@ PATTERN_INTERRUPT_INTERVAL: float = _float("PATTERN_INTERRUPT_INTERVAL", 50.0)
 ENABLE_AI_BROLL: bool = _bool("ENABLE_AI_BROLL", False)
 BROLL_IMAGE_MODEL: str = _str("BROLL_IMAGE_MODEL", "dall-e-3")
 
+# Provider for AI B-roll image generation.
+#   "openai" — DALL-E 3 (~$0.04/image, high quality)
+#   "fal"    — fal.ai (~$0.003/image with FLUX schnell, ~13x cheaper)
+# Default: "fal" since it's much cheaper and fast enough for shorts.
+# Falls back to OpenAI if fal_client isn't installed or FAL_KEY is missing.
+BROLL_IMAGE_PROVIDER: str = _str("BROLL_IMAGE_PROVIDER", "fal")
+
+# Model name when BROLL_IMAGE_PROVIDER="fal".
+#   fal-ai/flux/schnell — cheapest, ~$0.003/image, ~2s latency, good quality
+#   fal-ai/flux/dev     — higher quality, ~$0.025/image, ~5s latency
+#   fal-ai/flux-pro     — best quality, ~$0.05/image
+FAL_IMAGE_MODEL: str = _str("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
+
 # 3D topology
 ENABLE_3D_TOPOLOGY: bool = _bool("ENABLE_3D_TOPOLOGY", True)
 
