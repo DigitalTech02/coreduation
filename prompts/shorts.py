@@ -116,12 +116,16 @@ show_header_breakdown, focus_camera, reset_camera.
 
 # OUTPUT FORMAT
 
-Return JSON matching the EnrichedVideoScript schema with EXACTLY 4 scenes.
+Return JSON matching the SemanticVideoScript schema with EXACTLY 4 scenes.
 Required per scene: scene_id, title, type, narration, visual_description,
 actions, estimated_duration, voice_mood, music_mood, pause_after.
-Top-level: topic (a punchy <=8-word headline, NOT the original long-form
-topic name), title (same), yt_title (a hook-style YouTube Shorts title <=60
-chars), category, scenes.
+
+Top-level fields (use these EXACT names):
+- topic: a punchy <=8-word headline (NOT the original long-form topic name)
+- video_title: same headline (or a slight variant)
+- suggested_youtube_title: a hook-style YouTube Shorts title <=60 chars
+- category: leave empty or echo the long-form's category
+- scenes: the 4 scenes
 """
 
 

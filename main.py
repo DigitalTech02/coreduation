@@ -554,9 +554,14 @@ def run_shorts_pipeline(
         json.dumps(script.model_dump(by_alias=True), indent=2),
         encoding="utf-8",
     )
+    headline = (
+        getattr(script, "video_title", "")
+        or getattr(script, "topic", "")
+        or topic
+    )
     logger.info(
         "Shorts script: %d scenes | title='%s'",
-        len(script.scenes), script.title,
+        len(script.scenes), headline,
     )
 
     logger.info("--- Shorts step 2: TTS + Whisper alignment ---")

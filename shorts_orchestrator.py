@@ -104,8 +104,13 @@ def generate_shorts_script(
     long_excerpt: str | None = None
     if long_form_script and long_form_script.scenes:
         last = long_form_script.scenes[-1]
+        long_title = (
+            getattr(long_form_script, "video_title", "")
+            or getattr(long_form_script, "topic", "")
+            or topic
+        )
         long_excerpt = (
-            f"Long-form title: {long_form_script.title}\n"
+            f"Long-form title: {long_title}\n"
             f"Long-form takeaway: {last.narration[:600]}"
         )
 
@@ -175,8 +180,13 @@ def generate_shorts_script(
     enriched.category = category
     enriched.title_card_subtitle = ""  # shorts don't render a title card
 
+    headline = (
+        getattr(enriched, "video_title", "")
+        or getattr(enriched, "topic", "")
+        or topic
+    )
     logger.info(
         "Generated shorts script: %d scenes for '%s'",
-        len(enriched.scenes), enriched.title,
+        len(enriched.scenes), headline,
     )
     return enriched
