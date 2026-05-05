@@ -675,67 +675,123 @@ def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> 
     state._categories["__shorts_badge"] = "persistent"
 
 
-# Mood → background-glow color.  Painted as a large faint blob behind the
-# scene's text card so empty canvas reads as "themed background", not "dead
-# space".  Matches the emotional tone of the scene's voice_mood.
+# Mood → vivid panel + accent color pair.  The panel fills most of the
+# scene canvas with a saturated color block (infographic style), the
+# accent drives stripes / borders / highlight elements.  Bumped to neon
+# saturation 2026-05-05 — user's reference visuals were vibrant pastels
+# and neons, not muted dark-theme accents.
 _SHORTS_MOOD_GLOW: dict[str, str] = {
-    "hook":       "#ff4d4d",   # urgent red
-    "dramatic":   "#ff5e1f",   # angry orange
-    "urgent":     "#ff5e1f",
-    "narrator":   "#3fb6ff",   # cool blue (analytical)
-    "analytical": "#3fb6ff",
-    "calm":       "#3fb6ff",
-    "excited":    "#ffd23f",   # gold (CTA energy)
+    "hook":       "#ff2d55",   # neon red
+    "dramatic":   "#ff6b1f",   # vivid orange
+    "urgent":     "#ff6b1f",
+    "narrator":   "#0a84ff",   # bright blue
+    "analytical": "#0a84ff",
+    "calm":       "#0a84ff",
+    "excited":    "#ffcc00",   # neon gold (CTA energy)
+}
+
+# Secondary fill — paints the panel's gradient bottom + light-ray streaks.
+# Slightly desaturated so the gradient creates depth rather than flatness.
+_SHORTS_MOOD_GLOW_DEEP: dict[str, str] = {
+    "hook":       "#7a0e2e",
+    "dramatic":   "#7a3210",
+    "urgent":     "#7a3210",
+    "narrator":   "#06366b",
+    "analytical": "#06366b",
+    "calm":       "#06366b",
+    "excited":    "#7a6500",
 }
 
 
 def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> None:
-    """Mood-keyed visual layer painted behind the scene's content.
+    """Mood-keyed FULL-BLEED panel + diagonal light rays.
 
-    Three stacked elements at z=-50 (above the gradient background, behind
-    all content):
+    Replaces the previous "small card on dark canvas" model with a vivid
+    infographic-style panel that fills the middle three-quarters of the
+    canvas with a saturated mood color.  Above + below the panel the
+    badge / progress bar / subtitle / CTA still have room to breathe.
 
-    1. A big translucent radial blob in the mood color, centered.
-    2. A vertical accent stripe along the LEFT edge of the canvas.
-    3. A vertical accent stripe along the RIGHT edge.
+    Layered z=-50..z=-30 (above gradient background, below content).
+    Cleared between scenes by ``_clear_shorts_glow``.
 
-    Together they fill the empty side margins with a per-scene color so the
-    viewer reads the emotional arc — danger → tension → solution → CTA —
-    through the background hue alone.
+    Composition (top→bottom on a 9:16 canvas, frame ±7.111 vertical):
+      y=+5.5..+7    badge/progress zone — left empty
+      y=-4.0..+5.5  full-bleed mood panel with gradient + light rays
+      y=-7..-4      subtitle + CTA zone — left empty
     """
     color = _SHORTS_MOOD_GLOW.get((voice_mood or "").strip().lower())
+    deep = _SHORTS_MOOD_GLOW_DEEP.get((voice_mood or "").strip().lower(), "#000000")
     if not color:
         return
 
-    from manim import Circle, Rectangle as _Rect
+    from manim import Circle, Line as _Line, Rectangle as _Rect, RoundedRectangle as _RR
 
-    glow = Circle(radius=5.6, color=color, stroke_width=0)
-    glow.set_fill(color, opacity=0.30)
-    glow.move_to([0, 0.0, 0])
-    glow.set_z_index(-50)
+    layers: list = []
 
-    # Vertical stripes hugging the canvas edges — adds vivid color
-    # without competing with central content.  ~0.35 wide each.
-    left_stripe = _Rect(width=0.45, height=14.0, color=color, stroke_width=0)
-    left_stripe.set_fill(color, opacity=0.38)
-    left_stripe.move_to([-3.78, 0.0, 0])  # frame_width=8 → -3.78 ≈ left edge
-    left_stripe.set_z_index(-49)
+    # Layer 1 — the big mood panel.  Rounded edges for that infographic
+    # "card" feel.  Fill at 0.55 so text on top reads, but the color
+    # dominates the visual identity of the scene.
+    panel = _RR(
+        width=7.6, height=10.5,
+        corner_radius=0.40,
+        color=color, stroke_width=4,
+        fill_color=color, fill_opacity=0.55,
+    )
+    panel.move_to([0, 0.75, 0])
+    panel.set_z_index(-50)
+    layers.append(panel)
 
-    right_stripe = _Rect(width=0.45, height=14.0, color=color, stroke_width=0)
-    right_stripe.set_fill(color, opacity=0.38)
-    right_stripe.move_to([3.78, 0.0, 0])
-    right_stripe.set_z_index(-49)
+    # Layer 2 — bottom gradient overlay using the deeper mood color.
+    # Creates a vertical gradient look without Manim's gradient API
+    # (which is finicky).  Stack 3 progressively darker rectangles.
+    for i, opacity in enumerate([0.18, 0.30, 0.42]):
+        slab = _Rect(
+            width=7.4, height=2.0 + i * 0.6,
+            color=deep, stroke_width=0,
+        )
+        slab.set_fill(deep, opacity=opacity)
+        slab.move_to([0, -3.5 + i * 0.4, 0])
+        slab.set_z_index(-49)
+        layers.append(slab)
 
-    layer = VGroup(glow, left_stripe, right_stripe)
+    # Layer 3 — diagonal light-ray streaks for energy.  4 lines at
+    # increasing opacity, all tilted at the same angle (~25°).  Sit
+    # behind the panel for a "background motion" feel.
+    import math
+    for i, (x_offset, y_offset, length) in enumerate([
+        (-2.5,  3.0, 11.0),
+        ( 0.0,  4.5, 11.0),
+        ( 2.0,  2.0, 11.0),
+        (-1.0, -1.5, 11.0),
+    ]):
+        angle = math.radians(25)
+        dx = (length / 2) * math.cos(angle)
+        dy = (length / 2) * math.sin(angle)
+        ray = _Line(
+            start=[x_offset - dx, y_offset - dy, 0],
+            end=[x_offset + dx, y_offset + dy, 0],
+            color=color, stroke_width=2 + i * 0.5,
+        )
+        ray.set_opacity(0.18 + i * 0.05)
+        ray.set_z_index(-51)
+        layers.append(ray)
 
+    # Layer 4 — accent corner blob top-right for visual interest.
+    blob = Circle(radius=1.4, color=color, stroke_width=0)
+    blob.set_fill(color, opacity=0.35)
+    blob.move_to([3.0, 5.4, 0])
+    blob.set_z_index(-48)
+    layers.append(blob)
+
+    layer_group = VGroup(*layers)
     try:
-        layer.set_opacity(0.0)
-        scene.add(layer)
-        scene.play(FadeIn(layer), run_time=0.35)
+        layer_group.set_opacity(0.0)
+        scene.add(layer_group)
+        scene.play(FadeIn(layer_group), run_time=0.40)
     except Exception:
-        scene.add(layer)
+        scene.add(layer_group)
 
-    state.objects["__shorts_glow"] = layer
+    state.objects["__shorts_glow"] = layer_group
     state._categories["__shorts_glow"] = "shorts_chrome"
 
 

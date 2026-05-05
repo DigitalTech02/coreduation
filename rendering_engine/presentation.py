@@ -372,13 +372,18 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
         # Long-form: route through collision-avoidance + card wrap.
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: shift below the metaphor (which lives at y≈+4.2) so both
-        # are visible.  Min card size of 7.4 wide × 3.0 tall — single-line
-        # text would otherwise produce a thin card lost in the canvas.
+        # Shorts: text sits DIRECTLY on the mood-colored panel (the
+        # background panel IS the visual container).  No dark card chrome
+        # needed — that was the old "small card on dark canvas" model that
+        # we deliberately replaced.  Forces title/body to white-bold for
+        # contrast against the saturated panel color.
+        from manim import WHITE as _WHITE
+        for part in parts:
+            try:
+                part.set_color(_WHITE)
+            except Exception:
+                pass
         group.move_to([0, -0.5, 0])
-        group = _wrap_in_card(
-            scene, group, opaque=True, min_width=7.4, min_height=3.0,
-        )
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
@@ -431,11 +436,18 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     if not is_shorts:
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: shift below the metaphor (y≈+4.2) — card centers around y≈-0.5.
+        # Shorts: bullet list sits directly on the mood panel — no dark
+        # card chrome.  Force title to bright accent (cyan-ish white) and
+        # bullets to white for max contrast.
+        from manim import WHITE as _WHITE
+        try:
+            if title_mob is not None:
+                title_mob.set_color(_WHITE)
+            for bullet in bullets:
+                bullet.set_color(_WHITE)
+        except Exception:
+            pass
         group.move_to([0, -0.5, 0])
-        group = _wrap_in_card(
-            scene, group, opaque=True, min_width=7.4, min_height=4.0,
-        )
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:
@@ -537,11 +549,17 @@ def _build_code_lines(lines: list[str], max_h: float):
 def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None:
     from rendering_engine.styles import WHITE
 
+    is_shorts = getattr(state, "mode", "long") == "shorts"
     parts = []
     title_mob = None
 
     if action.title:
-        title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        title_size = int(SUBTITLE_FONT_SIZE * 1.5) if is_shorts else SUBTITLE_FONT_SIZE
+        title_mob = Text(
+            action.title, font_size=title_size,
+            color=WHITE if is_shorts else PRIMARY,
+            weight="BOLD" if is_shorts else "NORMAL",
+        )
         if title_mob.width > _CODE_MAX_WIDTH:
             title_mob.set_width(_CODE_MAX_WIDTH)
         parts.append(title_mob)
@@ -611,12 +629,49 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
             )
             scene.wait(0.5)
     else:
-        bg = SurroundingRectangle(
-            code_group, color=MUTED, fill_color=BG_COLOR,
-            fill_opacity=0.8, buff=0.3, corner_radius=0.1,
-        )
-        code_with_bg = VGroup(bg, code_group)
-        parts.append(code_with_bg)
+        if is_shorts:
+            # Traffic-light window chrome in shorts mode (macOS-style).
+            # Three colored dots in the top-left + a darker title bar above
+            # the code, on a chunky dark window bg.  Matches the user's
+            # reference visuals (Image 1) where code blocks read as IDE
+            # windows, not floating text on dark.
+            from manim import RoundedRectangle as _RR2, Circle as _Circle
+
+            window_w = max(code_group.width + 0.9, 6.8)
+            chrome_h = 0.55
+            window_h = code_group.height + chrome_h + 0.6
+
+            window_bg = _RR2(
+                width=window_w, height=window_h, corner_radius=0.20,
+                color="#2a2a2e", stroke_width=3,
+                fill_color="#16161a", fill_opacity=0.98,
+            )
+            chrome_bar = _RR2(
+                width=window_w - 0.04, height=chrome_h, corner_radius=0.18,
+                color="#2a2a2e", stroke_width=0,
+                fill_color="#2a2a2e", fill_opacity=1.0,
+            )
+            chrome_bar.align_to(window_bg, UP).shift(DOWN * 0.02)
+
+            dots = VGroup()
+            for i, dot_color in enumerate(("#ff5f56", "#ffbd2e", "#27c93f")):
+                d = _Circle(radius=0.10, color=dot_color, stroke_width=0)
+                d.set_fill(dot_color, opacity=1.0)
+                d.move_to(chrome_bar.get_left() + RIGHT * (0.35 + i * 0.32))
+                dots.add(d)
+
+            code_group.next_to(chrome_bar, DOWN, buff=0.18)
+            code_group.align_to(window_bg, LEFT).shift(RIGHT * 0.35)
+
+            code_with_bg = VGroup(window_bg, chrome_bar, dots, code_group)
+            parts.append(code_with_bg)
+        else:
+            bg = SurroundingRectangle(
+                code_group, color=MUTED, fill_color=BG_COLOR,
+                fill_opacity=0.8, buff=0.3, corner_radius=0.1,
+            )
+            code_with_bg = VGroup(bg, code_group)
+            parts.append(code_with_bg)
 
         content = VGroup(*parts).arrange(DOWN, buff=0.35)
         group = _with_shadow(content)
