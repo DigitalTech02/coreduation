@@ -600,7 +600,10 @@ def run_shorts_pipeline(
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             # Shorts force continuous music (a 40-second video can't be
             # half-silent without feeling underbaked) and stamp every scene
-            # start with a mood-keyed kickoff SFX.
+            # start with a mood-keyed kickoff SFX.  Music is also bumped
+            # to -22 dB (vs the global -36) so it's actually present, not
+            # background wallpaper — phones are usually played in noisy
+            # environments where -36 disappears.
             build_narration_track_from_manifest(
                 scene_paths, scene_ids, manifest,
                 output_path=combined_audio,
@@ -609,6 +612,7 @@ def run_shorts_pipeline(
                 scene_moods=scene_moods,
                 voice_moods=scene_voice_moods,
                 music_playback_mode="continuous",
+                music_volume_db_override=-22.0,
                 shorts_kickoff_sfx=True,
             )
             used_manifest = True

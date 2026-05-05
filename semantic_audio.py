@@ -69,15 +69,24 @@ SFX_MAP: dict[str, str] = {
 # Scene-kickoff SFX for shorts only — overlaid at each scene's video_start
 # regardless of action contents.  Gives every scene a punchy audio "stamp"
 # at the moment it begins, matching the user's TikTok/Reels expectation.
+# Updated 2026-05-05: user wanted MORE boom/impact and at higher volume.
+# Replaced soft_pop on narrator/analytical with cinematic_impact_hit so
+# every scene starts with a punch, not a click.
 _SHORTS_KICKOFF_SFX: dict[str, str] = {
     "hook":       "suspenseful_boom.mp3",
-    "dramatic":   "cinematic_impact_hit.mp3",
+    "dramatic":   "suspenseful_boom.mp3",
     "urgent":     "cinematic_impact_hit.mp3",
     "excited":    "whoosh_cinematic.mp3",
-    "narrator":   "soft_pop.mp3",
-    "analytical": "soft_pop.mp3",
+    "narrator":   "cinematic_impact_hit.mp3",
+    "analytical": "cinematic_impact_hit.mp3",
     "calm":       "soft_pop.mp3",
 }
+
+# How much louder than per-action SFX the shorts kickoffs play.  Each scene
+# kickoff IS the audio cue that says "new section, look up", so it must
+# punch through the music bed.  +10 dB above SFX baseline = -6 dB total
+# at the default SFX_VOLUME_DB=-16.
+_SHORTS_KICKOFF_BOOST_DB = 10.0
 
 
 def _load_sfx(action_type: str) -> AudioSegment | None:
@@ -350,6 +359,7 @@ def build_narration_track_from_manifest(
     voice_moods: list[str] | None = None,
     music_playback_mode: str | None = None,
     music_highlight_moods: str | None = None,
+    music_volume_db_override: float | None = None,
     shorts_kickoff_sfx: bool = False,
 ) -> str:
     """Lay narration audio onto the timeline declared by the renderer manifest.
@@ -467,8 +477,13 @@ def build_narration_track_from_manifest(
             logger.info("Mixed shorts scene-kickoff SFX")
 
     if ENABLE_BACKGROUND_MUSIC and placed_video_starts:
+        effective_music_db = (
+            music_volume_db_override
+            if music_volume_db_override is not None
+            else MUSIC_VOLUME_DB
+        )
         music_track = _build_music_track_from_manifest(
-            total_ms, MUSIC_VOLUME_DB, category,
+            total_ms, effective_music_db, category,
             scene_moods=placed_moods,
             video_starts=placed_video_starts,
             video_ends=placed_video_ends,
@@ -477,7 +492,10 @@ def build_narration_track_from_manifest(
         )
         if music_track is not None:
             track = track.overlay(music_track)
-            logger.info("Mixed background music into manifest-aligned narration")
+            logger.info(
+                "Mixed background music into manifest-aligned narration (%.1f dB)",
+                effective_music_db,
+            )
 
     track.export(str(out), format="mp3")
     logger.info(
@@ -520,20 +538,25 @@ def _build_shorts_kickoff_track(
 ) -> AudioSegment | None:
     """Overlay a mood-keyed kickoff SFX at each shorts scene's video_start.
 
-    Slightly louder than per-action SFX (-12 dB instead of -16 dB) because
-    the kickoff IS the audio cue that says "new scene, look up".
+    Punches significantly louder than per-action SFX
+    (``_SHORTS_KICKOFF_BOOST_DB`` above the SFX baseline) because the
+    kickoff IS the audio cue that signals scene transitions on a phone
+    where playback may be muffled by background noise.  At default
+    SFX_VOLUME_DB=-16 + boost 10 = -6 dB total — clearly audible.
     """
     track = AudioSegment.silent(total_ms)
     any_overlaid = False
     for mood, vstart in zip(voice_moods, video_starts):
         sfx_name = _SHORTS_KICKOFF_SFX.get((mood or "").lower())
         if not sfx_name:
-            continue
+            # Default to cinematic_impact_hit so EVERY scene has a kickoff,
+            # even if the LLM emitted an unusual mood string.
+            sfx_name = "cinematic_impact_hit.mp3"
         path = ASSETS_SFX_DIR / sfx_name
         if not path.is_file():
             continue
         try:
-            sfx = AudioSegment.from_file(str(path)) + (sfx_volume_db + 4.0)
+            sfx = AudioSegment.from_file(str(path)) + (sfx_volume_db + _SHORTS_KICKOFF_BOOST_DB)
         except Exception as e:
             logger.debug("Could not load kickoff SFX %s: %s", path, e)
             continue
