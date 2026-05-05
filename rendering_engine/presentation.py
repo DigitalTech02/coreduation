@@ -320,26 +320,49 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     parts = []
     title_mob = None
 
+    # Shorts mode: bigger, bolder text on a 9:16 canvas so the content
+    # actually fills the frame instead of floating like a postage stamp.
+    is_shorts = getattr(state, "mode", "long") == "shorts"
+    title_size = int(TITLE_FONT_SIZE * 1.5) if is_shorts else TITLE_FONT_SIZE
+    body_size = int(BODY_FONT_SIZE * 1.4) if is_shorts else BODY_FONT_SIZE
+    body_max_width = 6.0 if is_shorts else 10.0
+    body_break_threshold = 60 if is_shorts else 100
+
     if action.title:
-        title_mob = Text(action.title, font_size=TITLE_FONT_SIZE, color=PRIMARY)
+        title_mob = Text(
+            action.title, font_size=title_size, color=PRIMARY, weight="BOLD",
+        )
+        # Title can't exceed canvas width either.  In shorts the safe width
+        # is ~6 units; horizontal it's ~12.
+        max_title_width = 6.4 if is_shorts else 12.0
+        if title_mob.width > max_title_width:
+            title_mob.set_width(max_title_width)
         parts.append(title_mob)
 
     if action.body:
         body = Text(
-            action.body, font_size=BODY_FONT_SIZE, color=MUTED,
-            line_spacing=1.4,
+            action.body, font_size=body_size, color=MUTED,
+            line_spacing=1.4, weight="MEDIUM" if is_shorts else "NORMAL",
         )
-        if len(action.body) > 100:
-            body.set_width(min(body.width, 10))
+        if len(action.body) > body_break_threshold:
+            body.set_width(min(body.width, body_max_width))
         parts.append(body)
 
     if not parts:
         return
 
-    content = VGroup(*parts).arrange(DOWN, buff=0.4)
+    buff = 0.6 if is_shorts else 0.4
+    content = VGroup(*parts).arrange(DOWN, buff=buff)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
-    group = _avoid_collision(scene, state, group)
+    if not is_shorts:
+        # Long-form: route through collision-avoidance + card wrap.
+        group = _avoid_collision(scene, state, group)
+    else:
+        # Shorts: center on canvas.  No persistent topology to dodge,
+        # and the card chrome from _avoid_collision feels too small here.
+        group.move_to([0, 0, 0])
+        group = _wrap_in_card(scene, group, opaque=True)
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
@@ -358,24 +381,43 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     parts = []
     title_mob = None
 
+    # Shorts mode: bigger fonts so the bullet card fills the vertical canvas.
+    is_shorts = getattr(state, "mode", "long") == "shorts"
+    bullet_title_size = int(SUBTITLE_FONT_SIZE * 1.5) if is_shorts else SUBTITLE_FONT_SIZE
+
     if action.title:
-        title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        title_mob = Text(
+            action.title, font_size=bullet_title_size, color=PRIMARY,
+            weight="BOLD" if is_shorts else "NORMAL",
+        )
         parts.append(title_mob)
 
+    bullet_size = int(BODY_FONT_SIZE * 1.4) if is_shorts else BODY_FONT_SIZE
+    bullet_max_w = 6.0 if is_shorts else 10.0
     bullets = []
     for item_text in action.items:
-        bullet = Text(f"  •  {item_text}", font_size=BODY_FONT_SIZE, color=MUTED)
-        if bullet.width > 10:
-            bullet.set_width(10)
+        bullet = Text(
+            f"  •  {item_text}", font_size=bullet_size, color=MUTED,
+            weight="MEDIUM" if is_shorts else "NORMAL",
+        )
+        if bullet.width > bullet_max_w:
+            bullet.set_width(bullet_max_w)
         bullets.append(bullet)
 
-    bullet_group = VGroup(*bullets).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
+    bullet_buff = 0.4 if is_shorts else 0.25
+    bullet_group = VGroup(*bullets).arrange(DOWN, aligned_edge=LEFT, buff=bullet_buff)
     parts.append(bullet_group)
 
-    content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
+    parts_buff = 0.7 if is_shorts else 0.5
+    content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=parts_buff)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
-    group = _avoid_collision(scene, state, group)
+    if not is_shorts:
+        group = _avoid_collision(scene, state, group)
+    else:
+        # Shorts: center on canvas with an opaque card.
+        group.move_to([0, 0, 0])
+        group = _wrap_in_card(scene, group, opaque=True)
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:

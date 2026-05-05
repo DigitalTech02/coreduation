@@ -124,6 +124,10 @@ class SceneState:
         self._bounds: dict[str, BBox] = {}
         self._parents: dict[str, str] = {}        # child_id → parent_id
         self._children: dict[str, list[str]] = {}  # parent_id → [child_ids]
+        # --- Render mode: "long" (16:9) or "shorts" (9:16) ---
+        # Set by ``run_full_video_construct`` from ``data["mode"]``.  Renderers
+        # read it to scale fonts up and re-anchor content for the tall canvas.
+        self.mode: str = "long"
 
     # -- registration ------------------------------------------------------
 

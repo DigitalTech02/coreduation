@@ -13,7 +13,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from manim import DOWN, LEFT, ORIGIN, RIGHT, UP, Dot, FadeIn, FadeOut, Line, Text, VGroup, WHITE
+from manim import (
+    DOWN, LEFT, ORIGIN, RIGHT, UP,
+    Arrow, Dot, FadeIn, FadeOut, Line, Rectangle, RoundedRectangle, Text, VGroup, WHITE,
+)
 
 from rendering_engine.engine import SceneState, _dispatch_action, _rebuild_action
 from rendering_engine.styles import (
@@ -241,11 +244,16 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
 
     future_refs = _collect_future_refs(scenes)
     state = SceneState()
+    state.mode = "shorts" if is_shorts else "long"
     add_watermark(scene, state, category)
     if not is_shorts:
         add_credit_label(scene, state)
         _add_persistent_topic_header(scene, state, topic, category)
         _add_corner_decorations(scene, state, category)
+    else:
+        # Vertical-mode chrome: viewer-grabbing top badge + progress bar.
+        _add_shorts_category_badge(scene, state, category)
+        _add_shorts_progress_bar(scene, state, category, total_scenes=len(scenes))
 
     n = len(scenes)
 
@@ -315,6 +323,15 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             if action is None:
                 continue
             _dispatch_action(scene, state, action)
+
+        # Last scene of a short: animated "Watch full →" CTA overlay.
+        # Plays immediately after the scene's actions so it's visible during
+        # the narration's CTA line, not crammed into the trailing fade.
+        if is_shorts and i == len(scenes) - 1:
+            try:
+                _play_shorts_cta_overlay(scene, category)
+            except Exception as e:
+                logger.debug("Shorts CTA overlay skipped: %s", e)
 
         elapsed = scene.renderer.time - t0
         wait_time = max(0.0, audio_dur + pause_after - elapsed - SCENE_FADE_OUT_SECONDS)
@@ -558,6 +575,161 @@ def _add_persistent_topic_header(
 # ---------------------------------------------------------------------------
 
 _CORNER_DECO_KEY = "__corner_deco"
+
+
+# ---------------------------------------------------------------------------
+# Shorts (vertical 9:16) decoration layer
+# ---------------------------------------------------------------------------
+
+# Category → header label for the shorts top badge.  Emoji prefix gives a
+# punchy visual cue at frame 0 even before the LLM-generated content shows up.
+_SHORTS_CATEGORY_LABEL: dict[str, str] = {
+    "security":           "🔒  SECURITY",
+    "networking":         "🌐  NETWORKING",
+    "data-structures":    "🌳  DATA STRUCTURES",
+    "programming":        "💻  PROGRAMMING",
+    "cloud-architecture": "☁️  CLOUD",
+    "system-design":      "⚙️  SYSTEM DESIGN",
+    "business-analysis":  "📊  BUSINESS",
+    "databases":          "🗄️  DATABASES",
+}
+
+
+def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> None:
+    """Top-of-frame pill with category emoji + label.
+
+    Anchored to the camera frame's top edge via updater so it survives
+    parallax / camera moves.  Sits at z=40 — over background, under any
+    scene content that lives at default z=0+.
+    """
+    label = _SHORTS_CATEGORY_LABEL.get((category or "").strip().lower(), "")
+    if not label:
+        return
+
+    accent = CATEGORY_ACCENT.get(category, PRIMARY)
+    txt = Text(label, font_size=26, color=WHITE, weight="BOLD")
+
+    pill = RoundedRectangle(
+        width=txt.width + 0.7,
+        height=txt.height + 0.32,
+        corner_radius=0.18,
+        color=accent,
+        stroke_width=0,
+        fill_color=accent,
+        fill_opacity=0.92,
+    )
+    pill.move_to(txt.get_center())
+    badge = VGroup(pill, txt)
+
+    def _anchor(mob):
+        try:
+            frame = scene.camera.frame
+            cy = frame.get_top()[1] - mob.height / 2 - 0.30
+            mob.move_to([0, cy, 0])
+        except Exception:
+            mob.to_edge(UP, buff=0.35)
+
+    _anchor(badge)
+    badge.add_updater(_anchor)
+    badge.set_z_index(40)
+    scene.add(badge)
+    state.objects["__shorts_badge"] = badge
+    state._categories["__shorts_badge"] = "persistent"
+
+
+def _add_shorts_progress_bar(
+    scene: Any, state: SceneState, category: str, total_scenes: int,
+) -> None:
+    """Thin top-edge progress bar that fills with playback time.
+
+    The fill width updates each frame against ``scene.renderer.time``.  We
+    estimate total duration from the number of scenes (~8s avg per shorts
+    scene) — the bar resyncs to the actual finish time at video end so the
+    inaccuracy is invisible to the viewer.
+    """
+    if total_scenes <= 0:
+        return
+
+    accent = CATEGORY_ACCENT.get(category, PRIMARY)
+    # Estimated duration drives the fill rate.  Capped at 60s (Shorts limit).
+    estimated_total = min(60.0, max(20.0, total_scenes * 11.0))
+
+    BAR_WIDTH = 7.4  # slightly inset from the 8.0 frame width
+    BAR_HEIGHT = 0.12
+    BADGE_GAP = 1.05  # leave room for the category badge above
+
+    track = Rectangle(
+        width=BAR_WIDTH, height=BAR_HEIGHT,
+        color=accent, stroke_width=0,
+        fill_color=accent, fill_opacity=0.20,
+    )
+    fill = Rectangle(
+        width=0.001, height=BAR_HEIGHT,
+        color=accent, stroke_width=0,
+        fill_color=accent, fill_opacity=0.95,
+    )
+    fill.align_to(track, LEFT)
+
+    bar = VGroup(track, fill)
+    t0 = float(scene.renderer.time)
+
+    def _anchor_and_fill(mob, dt, _t0=t0, _total=estimated_total, _track=track, _fill=fill):
+        try:
+            frame = scene.camera.frame
+            cy = frame.get_top()[1] - mob.height / 2 - BADGE_GAP
+            mob.move_to([0, cy, 0])
+            elapsed = max(0.0, float(scene.renderer.time) - _t0)
+            ratio = min(1.0, elapsed / _total)
+            new_w = max(0.001, BAR_WIDTH * ratio)
+            _fill.stretch_to_fit_width(new_w)
+            # Re-pin fill's left edge to track's left edge after stretch
+            left_x = _track.get_left()[0]
+            _fill.move_to([left_x + new_w / 2, _track.get_center()[1], 0])
+        except Exception:
+            pass
+
+    _anchor_and_fill(bar, 0)
+    bar.add_updater(_anchor_and_fill)
+    bar.set_z_index(38)
+    scene.add(bar)
+    state.objects["__shorts_progress"] = bar
+    state._categories["__shorts_progress"] = "persistent"
+
+
+def _play_shorts_cta_overlay(scene: Any, category: str) -> None:
+    """Animated 'Watch full →' CTA overlay used on the LAST scene of a short.
+
+    Adds a downward arrow + accent label below the content card so the
+    viewer's eye lands on the CTA right as the narrator delivers it.  The
+    overlay fades out with the scene clear, no manual cleanup needed.
+    """
+    accent = CATEGORY_ACCENT.get(category, PRIMARY)
+
+    label = Text("Watch the full breakdown", font_size=30, color=WHITE, weight="BOLD")
+    arrow = Arrow(
+        start=[0, 0.5, 0], end=[0, -0.3, 0],
+        color=accent, stroke_width=8, max_tip_length_to_length_ratio=0.35,
+    )
+    sub = Text("link in description", font_size=22, color=accent, weight="MEDIUM")
+
+    cta = VGroup(label, arrow, sub).arrange(DOWN, buff=0.25)
+    try:
+        frame = scene.camera.frame
+        cy = frame.get_bottom()[1] + 1.6
+        cta.move_to([0, cy, 0])
+    except Exception:
+        cta.to_edge(DOWN, buff=1.0)
+    cta.set_z_index(50)
+
+    scene.play(FadeIn(label, shift=UP * 0.15), run_time=0.35)
+    scene.play(FadeIn(arrow), run_time=0.25)
+    try:
+        # Quick pulse to draw the eye
+        scene.play(arrow.animate.scale(1.18), run_time=0.18)
+        scene.play(arrow.animate.scale(1 / 1.18), run_time=0.18)
+    except Exception:
+        pass
+    scene.play(FadeIn(sub), run_time=0.25)
 
 
 def _add_corner_decorations(scene: Any, state: SceneState, category: str = "") -> None:

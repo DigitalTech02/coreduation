@@ -413,15 +413,26 @@ def schedule_subtitles_for_scene(
     scene_start = float(scene.renderer.time)
     created: list = []
 
+    # Detect vertical canvas — phone shorts need bigger captions and a
+    # narrower max width since the canvas is only ~8 units wide.
+    try:
+        frame = scene.camera.frame
+        is_vertical = frame.height > frame.width
+    except Exception:
+        is_vertical = False
+
+    sub_font = int(SUBTITLE_FONT_SIZE_DISPLAY * 1.5) if is_vertical else SUBTITLE_FONT_SIZE_DISPLAY
+    sub_max_w = 6.5 if is_vertical else SUBTITLE_MAX_WIDTH
+
     for chunk_text, (start, end) in zip(chunks, slices):
         txt = Text(
             chunk_text,
-            font_size=SUBTITLE_FONT_SIZE_DISPLAY,
+            font_size=sub_font,
             color=WHITE,
             weight="BOLD",
         )
-        if txt.width > SUBTITLE_MAX_WIDTH:
-            txt.set_width(SUBTITLE_MAX_WIDTH)
+        if txt.width > sub_max_w:
+            txt.set_width(sub_max_w)
 
         bg = RoundedRectangle(
             width=txt.width + 0.5,
@@ -499,9 +510,17 @@ def _subtitle_y(scene: Any, offset_from_bottom: float) -> float:
 
     *offset_from_bottom* is the distance UP from the visible frame bottom,
     so a positive value places the subtitle above the bottom edge.
+
+    On vertical (9:16) shorts the bottom of the frame is hidden behind the
+    platform UI (TikTok caption row, IG button bar, YouTube Shorts comments).
+    Detect a tall canvas and lift the subtitle higher (~3 units up) so it
+    sits comfortably in the lower-third instead of the literal bottom edge.
     """
     try:
         frame = scene.camera.frame
+        is_vertical = frame.height > frame.width
+        if is_vertical:
+            offset_from_bottom = max(offset_from_bottom, 3.2)
         return frame.get_bottom()[1] + offset_from_bottom
     except Exception:
         from rendering_engine.styles import SUBTITLE_Y_OFFSET

@@ -65,6 +65,77 @@ def _truncate_scenes(data: dict, max_scenes: int = _MAX_SHORTS_SCENES) -> dict:
     return data
 
 
+def _enrich_empty_actions(data: dict) -> dict:
+    """Repair empty action content so shorts never render a blank canvas.
+
+    The LLM sometimes emits ``show_text_block`` with empty ``title``/``body``
+    placeholders.  In long-form that's fine because the persistent topic
+    header + intro card + outro card give the viewer something to look at.
+    In a 9:16 short with no chrome, an empty action means a black frame.
+
+    Two repairs:
+    1. If a ``show_text_block`` has empty title AND body, fill ``body`` from
+       the scene narration (truncated to ~140 chars so it fits a vertical card).
+    2. If a scene has zero non-empty actions, inject a default
+       ``show_text_block`` whose body is the narration.
+
+    This is shorts-specific defensive enrichment.  Long-form runs untouched.
+    """
+    for scene in data.get("scenes", []):
+        narration = (scene.get("narration") or "").strip()
+        actions = scene.get("actions") or []
+
+        for act in actions:
+            if act.get("type") != "show_text_block":
+                continue
+            title = (act.get("title") or "").strip()
+            body = (act.get("body") or "").strip()
+            if title or body:
+                continue
+            if narration:
+                # Use first sentence as title (short, punchy), rest as body.
+                first_sentence_end = -1
+                for terminator in (". ", "! ", "? "):
+                    idx = narration.find(terminator)
+                    if idx != -1 and (first_sentence_end == -1 or idx < first_sentence_end):
+                        first_sentence_end = idx + 1
+                if 0 < first_sentence_end < len(narration) - 4:
+                    act["title"] = narration[:first_sentence_end].strip().rstrip(".!?")
+                    act["body"] = narration[first_sentence_end:].strip()[:200]
+                else:
+                    # Single sentence — put the whole thing in body for big bold treatment.
+                    act["body"] = narration[:200]
+                logger.info(
+                    "Auto-filled empty show_text_block in scene '%s' from narration",
+                    scene.get("scene_id", "?"),
+                )
+
+        non_empty = [
+            a for a in actions
+            if a.get("type") and (
+                a.get("title") or a.get("body") or a.get("text") or a.get("items")
+                or a.get("type") in {
+                    "flash_cut", "zoom_punch", "glitch_transition",
+                    "scene_transition", "pulse_element", "shake_element",
+                }
+            )
+        ]
+        if not non_empty and narration:
+            actions.append({
+                "type": "show_text_block",
+                "title": "",
+                "body": narration[:200],
+                "position": "center",
+            })
+            scene["actions"] = actions
+            logger.info(
+                "Injected default show_text_block in empty scene '%s' (narration fallback)",
+                scene.get("scene_id", "?"),
+            )
+
+    return data
+
+
 def _hash_str(*parts: str) -> str:
     h = hashlib.sha256()
     for p in parts:
@@ -135,6 +206,7 @@ def generate_shorts_script(
                 cached = _sanitize_script_dict(cached)
                 cached = _filter_to_vertical_actions(cached)
                 cached = _truncate_scenes(cached)
+                cached = _enrich_empty_actions(cached)
                 llm_script = SemanticVideoScript.model_validate(cached)
             except Exception as e:
                 logger.warning("Cached shorts script failed validation, regenerating: %s", e)
@@ -161,6 +233,7 @@ def generate_shorts_script(
             raw_dict = _sanitize_script_dict(raw_dict)
             raw_dict = _filter_to_vertical_actions(raw_dict)
             raw_dict = _truncate_scenes(raw_dict)
+            raw_dict = _enrich_empty_actions(raw_dict)
             llm_script = SemanticVideoScript.model_validate(raw_dict)
         except Exception as e:
             logger.error("Failed to parse shorts script JSON: %s", e)
