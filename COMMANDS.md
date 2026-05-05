@@ -3,12 +3,14 @@
 ## Usage
 
 ```bash
-python main.py --topic "<TOPIC>" [--category <CATEGORY>] [--engine semantic|legacy]
+python main.py --topic "<TOPIC>" [--category <CATEGORY>] [--engine semantic|legacy] [--shorts] [--shorts-only]
 ```
 
 - `--topic` — The video topic (required)
 - `--category` — Specialty prompt category (default: `auto`)
 - `--engine` — Rendering engine (default: `semantic`)
+- `--shorts` — Also generate a 50s vertical 9:16 short for YouTube Shorts / Instagram Reels / TikTok
+- `--shorts-only` — Skip the long-form and only generate the vertical short
 
 ## Available Categories
 
@@ -46,21 +48,43 @@ python main.py --topic "Kubernetes Pod Networking"
 python main.py --topic "Database Normalization"
 ```
 
+## Examples — Shorts (vertical 9:16)
+
+```bash
+# Long-form + matching short for cross-platform posting
+python main.py --topic "TLS Handshake" --category security --shorts
+
+# Just the short (fast iteration on viral framing)
+python main.py --topic "TLS Handshake" --category security --shorts-only
+
+# Backfill a short for a topic with auto-detected category
+python main.py --topic "How CDNs Work" --shorts-only
+```
+
 ## Output
 
 Each run creates a timestamped folder under `output/` containing:
 
-- `script.json` — The generated semantic script (edit and re-render via the dashboard)
+- `script.json` — The long-form semantic script (edit and re-render via the dashboard)
 - `audio/` — Per-scene TTS narration files
 - `audio_<lang>/` — Per-language dub TTS (when `ENABLE_DUBS=true`)
-- `video/` — Silent Manim render(s)
-- `full_narration.mp3` — Combined audio track (narration + SFX + mood-matched music)
+- `video/full_semantic_silent.mp4` — Silent Manim render
+- `video/scene_timings.json` — Per-scene `video_start_seconds` manifest (Track 6 source of truth for AV alignment)
+- `full_narration.mp3` — Manifest-aligned narration (narration + SFX + selective music)
 - `full_narration_<lang>.mp3` — Per-language narration when dubbing
-- `final_semantic.mp4` — Manim video with narration audio
-- `final_with_chrome.mp4` — Above, with Remotion intro/outro concatenated (when enabled)
+- `final_semantic.mp4` — **Long-form 16:9 deliverable**
+- `final_with_chrome.mp4` — Above, with Remotion intro/outro concatenated (off by default)
 - `final_<lang>.mp4` — Per-language dub videos
 - `thumbnail.jpg` — 1280×720 YouTube thumbnail (when `ENABLE_THUMBNAIL_GEN=true`)
+- `frame_validation.json` — Track 4 deterministic per-scene frame report
 - `vision_qa.json` — GPT-4o frame-by-frame QA report (when `ENABLE_VISION_QA=true`)
+- `shorts/` — only present with `--shorts` / `--shorts-only`:
+  - `script.json` — 4-scene viral short script
+  - `audio/<scene_id>.mp3` — Per-scene TTS for the short
+  - `narration.mp3` — Manifest-aligned short narration
+  - `video/shorts_silent.mp4` + `video/scene_timings.json`
+  - `short.mp4` — **Canonical vertical short**
+  - `youtube_short.mp4`, `instagram_reel.mp4`, `tiktok.mp4` — Same content, renamed for upload convenience (`SHORTS_EMIT_PLATFORM_COPIES`)
 
 ---
 
@@ -146,6 +170,13 @@ ENABLE_DUBS=true DUB_LANGUAGES="es,hi,fr" python main.py --topic "OAuth2" --cate
 
 # YouTube auto-upload (requires client_secret.json from Google Cloud Console)
 ENABLE_YOUTUBE_UPLOAD=true YOUTUBE_PRIVACY_STATUS=unlisted python main.py --topic "REST API Design" --category system-design
+
+# Music tuning (defaults are selective + tense-only + -36 dB; tweak via env)
+MUSIC_PLAYBACK_MODE=continuous python main.py --topic "TLS Handshake"      # legacy: music under every scene
+MUSIC_PLAYBACK_MODE=off python main.py --topic "TLS Handshake"             # silence, no music
+MUSIC_HIGHLIGHT_MOODS="tense,dramatic" python main.py --topic "TLS Handshake"  # also play music on big reveals
+MUSIC_VOLUME_DB=-40 python main.py --topic "TLS Handshake"                 # quieter
+MUSIC_INCLUDE_INTRO_OUTRO_BEDS=false python main.py --topic "TLS Handshake"  # silent intro/outro
 ```
 
 ### Remotion chrome (Node-side setup)
@@ -192,7 +223,7 @@ rm -rf .cache/tts/                # only TTS audio
 ## Run Tests
 
 ```bash
-python -m pytest tests/ -v
+pytest tests/ -q
 ```
 
-All 30 tests should pass.
+All 158 tests should pass (Track 7 baseline; runs in ~1.5s — no Manim subprocess invoked).

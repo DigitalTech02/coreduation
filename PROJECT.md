@@ -1,6 +1,6 @@
 # CoreDuation — AI Video Generation Pipeline
 
-An automated pipeline that transforms any educational topic into a fully narrated, animated video using LLM script generation, text-to-speech, and the Manim animation engine.
+An automated pipeline that turns any educational topic into a fully narrated, animated video — long-form (16:9) for YouTube and a matching vertical short (9:16) for YouTube Shorts, Instagram Reels, and TikTok.
 
 ## How It Works
 
@@ -8,40 +8,56 @@ An automated pipeline that transforms any educational topic into a fully narrate
 Topic (CLI)
     │
     ▼
-┌──────────────────────────┐
-│  1. Category Detection   │  Fast LLM call classifies the topic
-│     (auto or explicit)   │  into one of 8 specialty domains
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  2. Script Generation    │  Domain-specific system prompt + GPT-4.1
-│     (Semantic JSON)      │  produces structured visual actions
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  3. Validation & Repair  │  ID deduplication, reference checking,
-│                          │  type coercion
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  4. Text-to-Speech       │  OpenAI TTS or ElevenLabs per scene
-│                          │  → combined narration track
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  5. Manim Rendering      │  Deterministic engine translates
-│     (single Scene)       │  semantic actions → animations
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  6. Audio/Video Mux      │  ffmpeg combines silent video
-│                          │  with narration → final MP4
-└──────────────────────────┘
+┌─────────────────────────────────┐
+│ 1. Category detection (auto)    │  Fast LLM call classifies into 1 of 8 domains
+└─────────────────┬───────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────┐
+│ 2. Long-form script (semantic   │  Domain-specific prompt + GPT-4.1 → JSON
+│    JSON, 10–18 scenes)          │  actions, retention beats injected
+└─────────────────┬───────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────┐
+│ 3. TTS per scene (multi-voice)  │  OpenAI / ElevenLabs, voice swapped by mood
+└─────────────────┬───────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────┐
+│ 4. Whisper word-level alignment │  scene.whisper_words drives subtitle timing
+└─────────────────┬───────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────┐
+│ 5. Manim render (single Scene)  │  Writes scene_timings.json manifest with
+│                                 │  per-scene actual video_start_seconds.
+└─────────────────┬───────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────┐
+│ 6. Manifest-aligned audio mux   │  Track 6: TTS placed at actual video times
+│    (narration + SFX + music)    │  → AV cannot drift across scenes
+└─────────────────┬───────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────┐
+│ 7. ffmpeg final mux             │  → final_semantic.mp4
+└─────────────────┬───────────────┘
+                  │
+                  ▼ (optional)
+┌─────────────────────────────────┐
+│ 8. QA / thumbnail / dubs /      │  frame_validator → vision_qa → thumbnail
+│    YouTube export / upload      │     → dubs → YouTube upload
+└─────────────────┬───────────────┘
+                  │
+                  ▼ (with --shorts)
+┌─────────────────────────────────┐
+│ 9. Shorts pipeline (Track 7)    │  Distill topic → 4-scene viral script →
+│                                 │  vertical render → manifest-aligned mux →
+│                                 │  short.mp4 + youtube_short / instagram_reel /
+│                                 │  tiktok.mp4 copies
+└─────────────────────────────────┘
 ```
 
 ## Architecture
@@ -52,29 +68,39 @@ The pipeline uses a **"Semantic JSON + Deterministic Engine"** architecture. The
 
 - **Zero code hallucinations** — the LLM only picks from a fixed action vocabulary
 - **Stateful rendering** — objects persist across scenes (topology stays while packets fly)
-- **Perfect layouts** — spatial math is handled in Python, not guessed by the LLM
-- **Timing-driven** — animations are paced to match narration duration
+- **Perfect layouts** — spatial math handled in Python, not guessed by the LLM
+- **Timing-driven** — animations paced to match narration duration
+- **AV-sync-by-construction** — renderer manifest is the single source of truth for scene boundaries; audio adapts to it
 
 ## Project Structure
 
 ```
 coreduation/
-├── main.py                        # Entry point, CLI, pipeline orchestration
-├── llm_orchestrator_semantic.py   # LLM script generation (semantic engine)
-├── llm_orchestrator.py            # Legacy LLM orchestrator (raw Manim code)
-├── models_semantic.py             # Pydantic models: actions, scenes, scripts
-├── models.py                      # Legacy Pydantic models
+├── main.py                        # CLI + pipeline orchestration (long-form + shorts)
+├── llm_orchestrator_semantic.py   # Long-form LLM script generation
+├── shorts_orchestrator.py         # Vertical 4-scene viral short generation
+├── models_semantic.py             # Pydantic action models + EnrichedVideoScript / EnrichedScene
 ├── semantic_validation.py         # Pre-render validation (IDs, references)
 ├── semantic_repair.py             # Post-generation ID deduplication
-├── semantic_audio.py              # Audio concatenation + ffmpeg muxing
-├── tts_generator.py               # OpenAI / ElevenLabs TTS wrapper
-├── animation_renderer.py          # Legacy per-scene Manim renderer
-├── video_stitcher.py              # Legacy video concatenation
-├── error_healer.py                # Legacy LLM-based Manim error healing
+├── semantic_audio.py              # Manifest-driven audio mux + SFX + selective music
+├── tts_generator.py               # OpenAI / ElevenLabs TTS
+├── whisper_align.py               # Whisper word-level timestamp extraction
+├── narration_processor.py         # WPM warnings, CTA scrubbing
+├── retention.py                   # Idle-scene visual beat injection
+├── voice_moods.py                 # mood → voice id mapping
+├── caching.py                     # diskcache wrapper
+├── frame_validator.py             # Deterministic per-scene frame QA
+├── auto_fix.py                    # Retry loop for failed scenes
+├── vision_qa.py                   # GPT-4o frame audit
+├── thumbnail_generator.py         # 1280×720 Pillow / DALL-E
+├── dubs.py                        # Translation + per-language re-TTS + remux
+├── chrome_compositor.py           # Remotion intro/outro concat (off by default)
+├── youtube_uploader.py            # In-pipeline OAuth resumable upload
+├── youtube_upload_export.py       # Bridge to Youtube_Upload/videos/ folder
 │
-├── prompts/                       # Specialty prompt system
-│   ├── __init__.py                # Registry: get_prompt(category), auto-detect
-│   ├── _base.py                   # SpecialtyPrompt dataclass + shared assembler
+├── prompts/                       # Specialty + shorts prompt registry
+│   ├── _base.py                   # SpecialtyPrompt dataclass + RETENTION_STRATEGY + ACTION_VOCABULARY
+│   ├── shorts.py                  # Viral 4-scene vertical prompt + VERTICAL_ACTION_WHITELIST
 │   ├── networking.py              # Networking & protocols
 │   ├── data_structures.py         # DSA & algorithms
 │   ├── programming.py             # Programming concepts
@@ -84,51 +110,59 @@ coreduation/
 │   ├── databases.py               # Database engineering
 │   └── security.py                # Cybersecurity & protocols
 │
-├── rendering_engine/              # Deterministic Manim rendering engine
-│   ├── __init__.py
-│   ├── engine.py                  # Core: SceneState, action dispatch, render orchestration
-│   ├── full_video_scene.py        # Single-Scene animation loop, title card, cleanup
-│   ├── full_video_runner.py       # Manim entry point (FullSemanticVideo class)
-│   ├── styles.py                  # Colors, fonts, sizes, timing, visual effects
-│   ├── topology.py                # Nodes, connections, layout algorithms
-│   ├── packets.py                 # Packet/message flow animations
-│   ├── sequence.py                # UML sequence diagrams
-│   ├── data_display.py            # Layer stacks, headers, tables, math
-│   ├── presentation.py            # Text blocks, bullet lists, code, comparisons
-│   └── cloud.py                   # Cloud regions, services, data flows
+├── rendering_engine/              # Deterministic Manim rendering
+│   ├── engine.py                  # SceneState + dispatch + render_full_semantic_video / render_shorts_video
+│   ├── full_video_scene.py        # Per-scene loop, writes scene_timings.json, reads data["mode"]
+│   ├── full_video_runner.py       # Long-form 16:9 entrypoint (FullSemanticVideo)
+│   ├── shorts_runner.py           # Vertical 9:16 entrypoint (ShortsSemanticVideo)
+│   ├── styles.py                  # Colors, fonts, sizes, timings, paddings + make_isometric_shadow
+│   ├── topology.py / topology_3d.py
+│   ├── packets.py / sequence.py / data_display.py / cloud.py / charts.py
+│   ├── presentation.py            # Text blocks, bullet lists, code, comparisons (with `_avoid_collision`)
+│   ├── subtitles.py               # Whisper-aligned scheduled subtitles + chunked fallback
+│   ├── branding.py                # Intro / outro / watermark / credit label
+│   ├── themes.py                  # Per-category palettes + animated gradient + drifting particle field
+│   ├── ambient.py                 # Margin-zone drifting decor shapes
+│   ├── keyword_overlay.py         # Background watermark word — DISABLED (competes with content)
+│   ├── effects.py                 # Pattern-interrupt cuts (flash_cut / zoom_punch / glitch_transition)
+│   ├── easing.py                  # Cubic / back / anticipation easing
+│   ├── broll.py                   # DALL-E + Ken Burns
+│   └── retention.py               # Beat-injection renderers
 │
+├── tests/                         # 158 pytest tests (Track 7 baseline)
+├── assets/                        # SFX + music files
+├── chrome/                        # Optional Remotion (Node) intro/outro project
+├── dashboard/                     # Streamlit preview UI
 ├── COMMANDS.md                    # CLI usage reference
 ├── PROJECT.md                     # This file
-├── requirements.txt               # Python dependencies
-├── .env                           # API keys and config (not committed)
+├── CHANGELOG.md                   # Track-by-track history
+├── CLAUDE.md                      # Repo guide for Claude (project conventions + active branch)
+├── requirements.txt
+├── .env.example
 └── .gitignore
 ```
 
-## Visual Action Vocabulary (19 types)
+## Visual Action Vocabulary (~36 types)
 
-The LLM selects from these action types. The rendering engine handles all Manim code.
+The LLM selects from this fixed vocabulary. The rendering engine handles all Manim code.
 
 | Category | Actions |
 |---|---|
 | **Topology** | `create_node`, `create_connection`, `create_topology`, `update_node`, `remove_element` |
-| **Packet Flow** | `send_packet`, `send_broadcast` |
-| **Sequence Diagram** | `show_sequence_diagram` |
-| **Data/Protocol** | `show_layer_stack`, `show_header_breakdown`, `show_table`, `show_math` |
+| **Packet flow** | `send_packet`, `send_broadcast` |
+| **Sequence diagram** | `show_sequence_diagram` |
+| **Data / protocol** | `show_layer_stack`, `show_header_breakdown`, `show_table`, `show_math` |
 | **Presentation** | `show_text_block`, `show_code_block`, `show_comparison`, `show_bullet_list` |
 | **Cloud** | `create_cloud_region`, `create_cloud_service`, `show_data_flow` |
+| **Camera + retention** | `pulse_element`, `focus_camera`, `reset_camera`, `show_progress`, `update_progress`, `emphasize_text`, `shake_element`, `dim_except`, `restore_opacity`, `add_callout`, `scene_transition`, `show_image` |
+| **Pattern interrupts** | `flash_cut`, `zoom_punch`, `glitch_transition` |
+| **Charts** | `show_chart` (D3 → Playwright → PNG) |
+
+The shorts pipeline restricts the LLM to a **vertical-friendly subset** (text blocks, bullet lists, emphasis, pattern interrupts, narrow code, B-roll images, scene transitions). Wide actions (topology, sequence, comparisons, tables, charts) are stripped before render to enforce the 9:16 layout.
 
 ## Specialty Prompt System
 
-Each content domain has a dedicated prompt with:
-
-| Component | Purpose |
-|---|---|
-| **Persona** | Who the teacher is (network engineer, algorithms instructor, etc.) |
-| **Video Structure** | Domain-specific scene flow (10-18 scenes) |
-| **Narration Style** | Tone, vocabulary, pacing guidelines |
-| **Preferred Actions** | Which visual actions to favor and avoid |
-| **Example Scene** | Gold-standard JSON example (few-shot prompting) |
-| **Title Card Subtitle** | Dynamic per-category (e.g. "Data Structures & Algorithms") |
+Each long-form domain has a dedicated prompt with persona / video structure / narration style / preferred actions / example scene / title-card subtitle.
 
 ### 8 Categories
 
@@ -143,82 +177,134 @@ Each content domain has a dedicated prompt with:
 | `databases` | Normalization, B-tree indexes, ACID, SQL queries |
 | `security` | TLS handshake, OAuth2, firewall rules, encryption |
 
+The shorts pipeline uses a **single non-specialty prompt** (`prompts/shorts.py`). Shorts deliberately don't get domain-specific pedagogy — they're a single self-contained beat (hook → tension → payoff → CTA), not a structured lesson.
+
 ## Visual Effects
 
-The rendering engine includes visual polish applied automatically to every video:
+Applied automatically across every video:
 
-- **Gradient fills** on topology nodes and cloud services (darker shade + sheen)
-- **Glow halos** on highlighted nodes and the title card
-- **Drop shadows** behind tables, text blocks, code blocks, comparisons, bullet lists
-- **Sheen effect** on packet pills, layer stacks, header fields, table headers
-- **Dark theme** with a consistent `#0f1117` background
-
-## Tech Stack
-
-| Component | Library | Version | Purpose |
-|---|---|---|---|
-| **LLM** | `openai` | >= 1.60.0 | GPT-4.1 for script generation and category detection |
-| **Data Models** | `pydantic` | >= 2.10.0 | Strict schemas, discriminated unions, field validators |
-| **Animation** | `manim` | >= 0.20.1 | Manim Community Edition for all visuals |
-| **TTS (primary)** | `openai` | >= 1.60.0 | OpenAI TTS API (tts-1 / tts-1-hd) |
-| **TTS (alt)** | `elevenlabs` | >= 1.20.0 | ElevenLabs as alternate TTS provider |
-| **Audio** | `pydub` | >= 0.25.1 | Audio concatenation, silence padding |
-| **Video** | `moviepy` | >= 2.0.0 | Legacy pipeline video stitching |
-| **A/V Mux** | `ffmpeg` | (system) | Final audio+video muxing (subprocess) |
-| **Config** | `python-dotenv` | >= 1.0.1 | Environment variable management |
-
-### System Requirements
-
-- **Python** 3.12+
-- **ffmpeg** installed and on PATH
-- **LaTeX** distribution (for MathTex rendering in Manim — optional, graceful fallback)
+- **Animated gradient backdrop** — slow hue drift behind every scene
+- **Drifting particle field** — 22 dots scattered across the canvas with per-particle sin-wave drift (`ENABLE_BACKGROUND_PARTICLES`)
+- **Margin-zone ambient decor** — slow-rotating stars/polygons/circles in the side strips outside the safe area (`ENABLE_AMBIENT_DECOR`)
+- **Isometric drop shadows** — stacked dark offset copies behind cards/topology nodes (`make_isometric_shadow`)
+- **Glow halos** on highlighted nodes
+- **Per-category accent colors** on title cards
+- **Whisper-aligned subtitles** — bold lower-third text, fade-in/out per chunk, anchored to actual spoken-word timestamps
 
 ## CLI Usage
 
 ```bash
-# Explicit category
-python main.py --topic "Binary Search" --category data-structures
-python main.py --topic "TCP Handshake" --category networking
-python main.py --topic "AWS VPC Design" --category cloud-architecture
+# Long-form only (default)
+python main.py --topic "TLS Handshake" --category security
 
-# Auto-detect (default — LLM classifies the topic)
+# Long-form + matching vertical short
+python main.py --topic "TLS Handshake" --category security --shorts
+
+# Shorts only (skip long-form)
+python main.py --topic "TLS Handshake" --category security --shorts-only
+
+# Auto-detect category
 python main.py --topic "How DNS Resolution Works"
-
-# Legacy engine (raw Manim code generation — not recommended)
-python main.py --topic "Sorting Algorithms" --engine legacy
 ```
 
 ### CLI Flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--topic` | `"TCP Three-Way Handshake"` | The educational topic to generate a video for |
+| `--topic` | `"TCP Three-Way Handshake"` | The educational topic |
 | `--engine` | `semantic` | `semantic` (recommended) or `legacy` |
 | `--category` | `auto` | One of the 8 categories, or `auto` for LLM detection |
-
-## Environment Variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for GPT-4.1 and TTS |
-| `OPENAI_MODEL` | No | Override LLM model (default: `gpt-4.1`) |
-| `TTS_PROVIDER` | No | `openai` (default) or `elevenlabs` |
-| `OPENAI_TTS_MODEL` | No | `tts-1` or `tts-1-hd` |
-| `OPENAI_TTS_VOICE` | No | Voice name (e.g. `alloy`, `nova`, `echo`) |
-| `ELEVENLABS_API_KEY` | If using ElevenLabs | ElevenLabs API key |
-| `ELEVENLABS_VOICE_ID` | If using ElevenLabs | Voice ID |
-| `ELEVENLABS_MODEL_ID` | If using ElevenLabs | Model ID |
+| `--shorts` | off | Also generate a 50s vertical short alongside the long-form |
+| `--shorts-only` | off | Skip the long-form and only generate the short |
 
 ## Output
 
-Each run creates a timestamped folder under `output/`:
+```
+output/<YYYYMMDD_HHMMSS>_semantic_<slug>/
+├── script.json                         # Full long-form semantic script
+├── audio/<scene_id>.mp3                # Per-scene TTS
+├── full_narration.mp3                  # Manifest-aligned combined narration
+├── video/
+│   ├── full_semantic_silent.mp4        # Silent Manim render
+│   └── scene_timings.json              # Per-scene video_start_seconds (Track 6)
+├── final_semantic.mp4                  # ← long-form 16:9 deliverable
+├── thumbnail.jpg                       # 1280×720
+├── frame_validation.json               # Track 4 deterministic QA report
+├── vision_qa.json                      # (when ENABLE_VISION_QA=true)
+└── shorts/                             # ← only when --shorts / --shorts-only
+    ├── script.json                     # 4-scene viral script
+    ├── audio/<scene_id>.mp3            # Per-scene TTS for the short
+    ├── narration.mp3                   # Manifest-aligned short narration
+    ├── video/
+    │   ├── shorts_silent.mp4           # Silent vertical render
+    │   └── scene_timings.json
+    ├── short.mp4                       # ← canonical short
+    ├── youtube_short.mp4               # Same content, renamed for upload
+    ├── instagram_reel.mp4              # Same content
+    └── tiktok.mp4                      # Same content
+```
 
+## Tech Stack
+
+| Component | Library | Purpose |
+|---|---|---|
+| LLM | `openai` | GPT-4.1 for script generation, GPT-4o for vision QA, DALL-E 3 for thumbnails / B-roll |
+| Data models | `pydantic` (>=2.10) | Strict schemas, discriminated unions |
+| Animation | `manim` (>=0.20) | Manim Community Edition |
+| TTS | `openai`, `elevenlabs` | Multi-voice |
+| Word alignment | `openai-whisper` | Subtitle timing |
+| Audio | `pydub`, `ffmpeg` | Mix + mux |
+| Caching | `diskcache` | TTS / LLM scripts / translations |
+| Charts | `playwright` (chromium) | D3 → SVG → PNG |
+| Thumbnails | `pillow`, `rembg` (optional) | 1280×720 composite |
+| Upload | `google-api-python-client`, `google-auth-oauthlib` | YouTube Data API v3 |
+| Chrome (optional) | Remotion (Node) | Intro/outro polish (off by default) |
+| Dashboard | `streamlit` | Preview / re-render UI |
+
+### System Requirements
+
+- **Python** 3.12+
+- **ffmpeg** on PATH
+- **LaTeX** (optional, for `MathTex`; gracefully falls back)
+- **Node.js LTS** (only if using Remotion chrome)
+
+## Environment Variables (selected)
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | — | Required for LLM, TTS, vision QA |
+| `OPENAI_MODEL` | `gpt-4.1` | Override LLM model |
+| `MANIM_QUALITY` | `m` | Long-form Manim quality flag (`l` / `m` / `h`) |
+| `ENABLE_SUBTITLE_ALIGNMENT` | `True` | Whisper word-level alignment |
+| `MUSIC_VOLUME_DB` | `-36` | Music volume relative to narration |
+| `MUSIC_PLAYBACK_MODE` | `selective` | `selective` / `continuous` / `off` |
+| `MUSIC_HIGHLIGHT_MOODS` | `tense` | Comma-separated `music_mood` values that get music |
+| `MUSIC_INCLUDE_INTRO_OUTRO_BEDS` | `True` | Brief stings under intro / outro |
+| `ENABLE_3D_TOPOLOGY` | `True` | Pseudo-3D depth shading |
+| `ENABLE_ISOMETRIC_SHADOW` | `True` | Stacked drop shadows on cards |
+| `ENABLE_REMOTION_CHROME` | `False` | Off — Manim already renders intro/outro |
+| `ENABLE_VISION_QA` | `False` | GPT-4o frame audit (~$0.10–0.30/video) |
+| `ENABLE_THUMBNAIL_GEN` | `True` | 1280×720 thumbnail |
+| `ENABLE_DUBS` / `DUB_LANGUAGES` | off | Multi-language re-TTS + remux |
+| `ENABLE_YOUTUBE_UPLOAD` | `False` | In-pipeline auto-upload |
+| `ENABLE_YOUTUBE_UPLOAD_EXPORT` | `True` | Copy output to `Youtube_Upload/videos/` for the standalone uploader |
+| `ENABLE_SHORTS` | `False` | Opt-in via `--shorts` / `--shorts-only` |
+| `SHORTS_TARGET_DURATION` | `50.0` | Seconds — capped at 60 for cross-platform safety |
+| `SHORTS_EMIT_PLATFORM_COPIES` | `True` | Emit `youtube_short.mp4` / `instagram_reel.mp4` / `tiktok.mp4` |
+
+See `.env.example` for the full list.
+
+## Running Tests
+
+```bash
+pytest tests/ -q          # 158 tests, runs in ~1.5s (no Manim subprocess)
 ```
-output/
-└── 2026-04-23_tcp-three-way-handshake_semantic/
-    ├── script.json          # Full semantic script (for debugging)
-    ├── audio/               # Per-scene TTS .mp3 files
-    ├── video/               # Intermediate video files
-    ├── full_narration.mp3   # Combined audio track
-    └── final_video.mp4      # Finished video with narration
+
+## Streamlit Preview Dashboard
+
+```bash
+pip install streamlit
+streamlit run dashboard/app.py
 ```
+
+Pick any run under `output/`, edit per-scene narration / voice mood / music mood / B-roll prompt, hit *Re-render TTS only* (cache-fast) or *Re-render full video*. Mirrors every CLI feature flag.
