@@ -224,19 +224,28 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         "total_video_duration": 0.0,
     }
 
-    play_intro_card(scene, category)
+    # "long" (default) renders intro card + title card + persistent topic
+    # header + corner decorations + outro card.  "shorts" skips all of
+    # those — a 50-second vertical short can't afford to spend ~9 seconds
+    # on chrome, and the persistent header / corner art crowd a 9:16 canvas.
+    mode = (data.get("mode") or "long").strip().lower()
+    is_shorts = mode == "shorts"
+
+    if not is_shorts:
+        play_intro_card(scene, category)
     manifest["intro_card_end_seconds"] = float(scene.renderer.time)
 
-    _play_title_card(scene, topic, subtitle, category)
+    if not is_shorts:
+        _play_title_card(scene, topic, subtitle, category)
     manifest["title_card_end_seconds"] = float(scene.renderer.time)
 
     future_refs = _collect_future_refs(scenes)
     state = SceneState()
     add_watermark(scene, state, category)
-    add_credit_label(scene, state)
-
-    _add_persistent_topic_header(scene, state, topic, category)
-    _add_corner_decorations(scene, state, category)
+    if not is_shorts:
+        add_credit_label(scene, state)
+        _add_persistent_topic_header(scene, state, topic, category)
+        _add_corner_decorations(scene, state, category)
 
     n = len(scenes)
 
@@ -343,7 +352,8 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             scene.wait(SCENE_GAP_SECONDS)
 
     manifest["outro_start_seconds"] = float(scene.renderer.time)
-    play_outro_card(scene, category, topic)
+    if not is_shorts:
+        play_outro_card(scene, category, topic)
     manifest["outro_end_seconds"] = float(scene.renderer.time)
     manifest["total_video_duration"] = float(scene.renderer.time)
 

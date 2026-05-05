@@ -173,6 +173,23 @@ ENABLE_ISOMETRIC_SHADOW: bool = _bool("ENABLE_ISOMETRIC_SHADOW", True)
 # Export final video to Youtube_Upload/videos/ for the standalone uploader
 ENABLE_YOUTUBE_UPLOAD_EXPORT: bool = _bool("ENABLE_YOUTUBE_UPLOAD_EXPORT", True)
 
+# --- Shorts pipeline (YouTube Shorts / Instagram Reels / TikTok) ---
+
+# Generate a 50s vertical short alongside the long-form video.  Off by
+# default — opted into via ``--shorts`` / ``--shorts-only`` CLI flags.
+ENABLE_SHORTS: bool = _bool("ENABLE_SHORTS", False)
+
+# Target total visual duration for shorts (seconds).  Hard-clamped to 60
+# inside the orchestrator since YouTube Shorts and IG Reels both cap at
+# 60s for safe cross-platform reach (TikTok allows longer but the viral
+# sweet spot is 15-60s).
+SHORTS_TARGET_DURATION: float = _float("SHORTS_TARGET_DURATION", 50.0)
+
+# Whether to emit platform-named copies (youtube_short.mp4, instagram_reel.mp4,
+# tiktok.mp4) of the same final short.  Same content, just renamed for
+# convenience when uploading.  Off saves disk if you don't need the copies.
+SHORTS_EMIT_PLATFORM_COPIES: bool = _bool("SHORTS_EMIT_PLATFORM_COPIES", True)
+
 # Remotion chrome (intro/outro/lower-thirds rendered by Node project).
 # DISABLED by default (user feedback 2026-05-04): Manim already renders an
 # intro card + title card + outro card inside ``final_semantic.mp4`` via

@@ -440,6 +440,189 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
         except Exception as e:
             logger.warning("YouTube upload skipped: %s", e)
 
+    return script
+
+
+# ---------------------------------------------------------------------------
+# Shorts pipeline (vertical 9:16 for YouTube Shorts / IG Reels / TikTok)
+# ---------------------------------------------------------------------------
+
+def _tts_and_align_scenes(scenes, audio_dir):
+    """TTS each scene then Whisper-align.  Mutates ``scene.audio_path``,
+    ``scene.audio_duration``, and ``scene.whisper_words`` in place.
+
+    Shared between long-form and shorts pipelines.
+    """
+    from narration_processor import scrub_closing_ctas
+    from tts_generator import generate_speech, speed_for_pace
+
+    scrub_closing_ctas(scenes)
+
+    for scene in scenes:
+        audio_path = str(audio_dir / f"{scene.scene_id}.mp3")
+        mood = getattr(scene, "voice_mood", "") or None
+        pace = getattr(scene, "narration_pace", "normal") or "normal"
+        speed = speed_for_pace(pace)
+        duration = generate_speech(scene.narration, audio_path, mood=mood, speed=speed)
+        scene.audio_path = audio_path
+        scene.audio_duration = duration
+        logger.info(
+            "Scene '%s' (mood=%s, pace=%s): audio %.2fs -> %s",
+            scene.scene_id, mood or "default", pace, duration, audio_path,
+        )
+
+    try:
+        from config import ENABLE_SUBTITLE_ALIGNMENT
+    except Exception:
+        ENABLE_SUBTITLE_ALIGNMENT = False
+    if ENABLE_SUBTITLE_ALIGNMENT:
+        try:
+            from whisper_align import align_words
+            for scene in scenes:
+                if not scene.audio_path:
+                    continue
+                try:
+                    timings = align_words(scene.audio_path)
+                    if timings:
+                        scene.whisper_words = [
+                            {"start": w.start, "end": w.end, "text": w.text}
+                            for w in timings
+                        ]
+                except Exception as e:
+                    logger.debug(
+                        "Whisper alignment for %s failed: %s", scene.scene_id, e,
+                    )
+        except Exception as e:
+            logger.warning("Whisper alignment skipped: %s", e)
+
+
+def run_shorts_pipeline(
+    topic: str,
+    category: str = "auto",
+    long_form_script=None,
+    run_dir: Path | None = None,
+) -> str | None:
+    """Generate a viral 50s vertical short for YT Shorts / IG Reels / TikTok.
+
+    Pipeline:
+      1. LLM distills topic into a 4-scene viral script (hook / tension /
+         payoff / CTA).
+      2. TTS each scene; Whisper-align for subtitle precision.
+      3. Render silent 1080x1920 vertical via ``ShortsSemanticVideo``.
+      4. Build manifest-aligned narration audio (same AV-sync fix as long-form).
+      5. Mux audio + video into ``shorts/short.mp4``.
+      6. Optionally write platform-named copies (youtube_short.mp4, etc.).
+
+    Reuses every Track 1-6 capability: theme system, ambient particles,
+    subtitle scheduler, manifest-driven audio, SFX/music selective mode.
+    Only the LLM prompt and the camera frame differ.
+    """
+    from rendering_engine.engine import render_shorts_video
+    from semantic_audio import (
+        build_narration_track_from_manifest,
+        build_semantic_narration_track,
+        mux_video_with_audio,
+    )
+    from semantic_repair import repair_duplicate_ids
+    from shorts_orchestrator import generate_shorts_script
+
+    if run_dir is None:
+        run_dir = _make_run_dir(topic, "shorts")
+    shorts_dir = run_dir / "shorts"
+    audio_dir = shorts_dir / "audio"
+    video_dir = shorts_dir / "video"
+    for d in (shorts_dir, audio_dir, video_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    logger.info("=== Shorts pipeline: viral 4-scene vertical ===")
+    logger.info("Run directory: %s", shorts_dir)
+
+    if category == "auto":
+        from prompts import auto_detect_category
+        category = auto_detect_category(topic)
+        logger.info("Auto-detected category: %s", category)
+
+    logger.info("--- Shorts step 1: distilling viral script ---")
+    script = generate_shorts_script(topic, long_form_script=long_form_script, category=category)
+    repair_duplicate_ids(script.scenes)
+
+    if not script.scenes:
+        logger.error("Shorts script has no scenes — aborting")
+        return None
+
+    (shorts_dir / "script.json").write_text(
+        json.dumps(script.model_dump(by_alias=True), indent=2),
+        encoding="utf-8",
+    )
+    logger.info(
+        "Shorts script: %d scenes | title='%s'",
+        len(script.scenes), script.title,
+    )
+
+    logger.info("--- Shorts step 2: TTS + Whisper alignment ---")
+    _tts_and_align_scenes(script.scenes, audio_dir)
+
+    logger.info("--- Shorts step 3: rendering vertical video ---")
+    silent_video = render_shorts_video(script, output_dir=video_dir)
+    if not silent_video:
+        logger.error("Shorts render failed. Aborting shorts pipeline.")
+        return None
+
+    logger.info("--- Shorts step 4: building manifest-aligned audio ---")
+    scene_paths = [s.audio_path for s in script.scenes if s.audio_path]
+    scene_ids = [s.scene_id for s in script.scenes if s.audio_path]
+    scene_actions = [
+        [a.model_dump(by_alias=True) for a in s.actions]
+        for s in script.scenes if s.audio_path
+    ]
+    scene_moods = [getattr(s, "music_mood", "") or "" for s in script.scenes if s.audio_path]
+    scene_pauses = [getattr(s, "pause_after", 0.0) or 0.0 for s in script.scenes if s.audio_path]
+
+    combined_audio = str(shorts_dir / "narration.mp3")
+    manifest_path = video_dir / "scene_timings.json"
+    used_manifest = False
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            build_narration_track_from_manifest(
+                scene_paths, scene_ids, manifest,
+                output_path=combined_audio,
+                scene_actions=scene_actions,
+                category=script.category,
+                scene_moods=scene_moods,
+            )
+            used_manifest = True
+        except Exception as e:
+            logger.warning(
+                "Shorts manifest-aligned audio failed (%s); falling back", e,
+            )
+    if not used_manifest:
+        build_semantic_narration_track(
+            scene_paths, output_path=combined_audio,
+            scene_actions=scene_actions, category=script.category,
+            scene_moods=scene_moods, scene_pauses=scene_pauses,
+        )
+
+    logger.info("--- Shorts step 5: muxing ---")
+    final_short = str(shorts_dir / "short.mp4")
+    mux_video_with_audio(silent_video, combined_audio, final_short)
+    logger.info("=== Shorts complete: %s ===", final_short)
+
+    try:
+        from config import SHORTS_EMIT_PLATFORM_COPIES
+    except Exception:
+        SHORTS_EMIT_PLATFORM_COPIES = True
+    if SHORTS_EMIT_PLATFORM_COPIES:
+        import shutil as _shutil
+        for name in ("youtube_short.mp4", "instagram_reel.mp4", "tiktok.mp4"):
+            try:
+                _shutil.copy(final_short, str(shorts_dir / name))
+            except Exception as e:
+                logger.debug("Platform copy %s skipped: %s", name, e)
+        logger.info("Platform-named copies saved in %s", shorts_dir)
+
+    return final_short
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -469,15 +652,61 @@ def main() -> None:
             "databases, security, auto (LLM auto-detects)"
         ),
     )
+    parser.add_argument(
+        "--shorts",
+        action="store_true",
+        help=(
+            "Also generate a 50s vertical 9:16 short (YouTube Shorts / IG Reels / "
+            "TikTok) alongside the long-form video.  The short uses the long-form "
+            "script as context so the CTA aligns."
+        ),
+    )
+    parser.add_argument(
+        "--shorts-only",
+        action="store_true",
+        help=(
+            "Skip the long-form video and only generate the vertical short.  "
+            "Useful for fast iteration on the shorts prompt or to back-fill "
+            "shorts for topics that already have long-form videos."
+        ),
+    )
     args = parser.parse_args()
 
     logger.info("=== Starting video generation pipeline ===")
-    logger.info("Topic: %s | Engine: %s | Category: %s", args.topic, args.engine, args.category)
+    logger.info(
+        "Topic: %s | Engine: %s | Category: %s | Shorts: %s",
+        args.topic, args.engine, args.category,
+        "only" if args.shorts_only else ("yes" if args.shorts else "no"),
+    )
+
+    if args.shorts_only:
+        run_shorts_pipeline(args.topic, category=args.category)
+        return
 
     if args.engine == "legacy":
         run_legacy_pipeline(args.topic)
-    else:
-        run_semantic_pipeline(args.topic, category=args.category)
+        return
+
+    long_form = run_semantic_pipeline(args.topic, category=args.category)
+
+    if args.shorts:
+        # Short pipeline reuses the run dir of the long form when possible
+        # so both videos for the same topic land under one output folder.
+        long_run_dir = None
+        try:
+            from pathlib import Path as _Path
+            if long_form and getattr(long_form, "scenes", None):
+                first_audio = long_form.scenes[0].audio_path
+                if first_audio:
+                    long_run_dir = _Path(first_audio).resolve().parent.parent
+        except Exception:
+            long_run_dir = None
+        run_shorts_pipeline(
+            args.topic,
+            category=args.category,
+            long_form_script=long_form,
+            run_dir=long_run_dir,
+        )
 
 
 if __name__ == "__main__":

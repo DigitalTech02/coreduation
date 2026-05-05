@@ -765,3 +765,116 @@ def render_full_semantic_video(
             logger.warning("Could not copy scene timing manifest: %s", e)
 
     return str(out)
+
+
+# ---------------------------------------------------------------------------
+# Shorts (vertical 9:16) render path
+# ---------------------------------------------------------------------------
+
+SHORTS_RUNNER = Path(__file__).resolve().parent / "shorts_runner.py"
+SHORTS_RUNNER_CLASS = "ShortsSemanticVideo"
+
+# 1080x1920 vertical at 30 fps.  Forced via Manim CLI flags so the user's
+# MANIM_QUALITY env var (which targets 16:9) doesn't fight us.
+SHORTS_PIXEL_W = 1080
+SHORTS_PIXEL_H = 1920
+SHORTS_FPS = 30
+
+
+def render_shorts_video(
+    script: EnrichedVideoScript,
+    output_dir: Path | str | None = None,
+) -> str | None:
+    """Render a vertical 9:16 short via ``ShortsSemanticVideo``.
+
+    Same data plumbing as ``render_full_semantic_video`` (script JSON written
+    to a tempfile, scene_timings manifest written by the construct, copied
+    to the output dir afterwards).  Differences:
+
+    * Uses the ``shorts_runner.py`` module which sets ``frame_width=8`` and
+      ``frame_height=14.222`` at module load.
+    * Forces 1080x1920 @ 30fps via ``-r`` and ``--fps`` CLI flags.
+    * The construct function detects ``data["mode"] == "shorts"`` and skips
+      intro/title/outro chrome and the persistent topic header.
+
+    Returns the path to the rendered silent ``.mp4`` (still vertical), or
+    ``None`` on failure.  The audio mux happens upstream in ``main.py``.
+    """
+    dest_dir = Path(output_dir) if output_dir else OUTPUT_DIR
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    data = _serialize_script(script)
+    data["mode"] = "shorts"
+    fd, json_path = tempfile.mkstemp(suffix=".json", prefix="shorts_data_")
+    os.close(fd)
+    Path(json_path).write_text(json.dumps(data), encoding="utf-8")
+
+    work_dir = Path(tempfile.mkdtemp(prefix="shorts_render_"))
+    media_dir = work_dir / "media"
+    manifest_path = work_dir / "scene_timings.json"
+
+    env = os.environ.copy()
+    env["SEMANTIC_DATA_JSON"] = json_path
+    env["SEMANTIC_TIMING_MANIFEST"] = str(manifest_path)
+
+    cmd = [
+        "python",
+        "-m",
+        "manim",
+        "render",
+        "-r",
+        f"{SHORTS_PIXEL_W},{SHORTS_PIXEL_H}",
+        "--fps",
+        str(SHORTS_FPS),
+        "--media_dir",
+        str(media_dir),
+        "--disable_caching",
+        str(SHORTS_RUNNER),
+        SHORTS_RUNNER_CLASS,
+    ]
+
+    logger.info("Shorts render: %s", " ".join(cmd))
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=1800,  # shorts shouldn't take long; tighter cap than long-form
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            cwd=str(Path.cwd()),
+        )
+    finally:
+        Path(json_path).unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        err = (result.stderr or "") + (result.stdout or "")
+        logger.error("Shorts render failed:\n%s", err[-6000:])
+        return None
+
+    for mp4 in media_dir.rglob(f"{SHORTS_RUNNER_CLASS}.mp4"):
+        if "partial_movie_files" not in str(mp4):
+            rendered = mp4
+            break
+    else:
+        logger.error(
+            "Shorts render finished but %s.mp4 not found under %s",
+            SHORTS_RUNNER_CLASS, media_dir,
+        )
+        return None
+
+    out = dest_dir / "shorts_silent.mp4"
+    out.unlink(missing_ok=True)
+    shutil.move(str(rendered), str(out))
+    logger.info("Silent vertical short: %s", out)
+
+    if manifest_path.exists():
+        try:
+            shutil.copy(str(manifest_path), str(dest_dir / "scene_timings.json"))
+            logger.info("Shorts timing manifest: %s", dest_dir / "scene_timings.json")
+        except Exception as e:
+            logger.warning("Could not copy shorts timing manifest: %s", e)
+
+    return str(out)
