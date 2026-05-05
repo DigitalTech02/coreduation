@@ -63,8 +63,32 @@ ENABLE_SFX: bool = _bool("ENABLE_SFX", True)
 SFX_VOLUME_DB: float = _float("SFX_VOLUME_DB", -16.0)
 
 # Background music
+# Volume lowered (user feedback 2026-05-04: -28 dB was too loud, irritating
+# with explain_loop.mp3 playing under all narration).  -36 dB sits well below
+# the voice without disappearing.
 ENABLE_BACKGROUND_MUSIC: bool = _bool("ENABLE_BACKGROUND_MUSIC", True)
-MUSIC_VOLUME_DB: float = _float("MUSIC_VOLUME_DB", -28.0)
+MUSIC_VOLUME_DB: float = _float("MUSIC_VOLUME_DB", -36.0)
+
+# Music playback mode: "selective" (default) plays music only during the
+# intro card, the outro card, and scenes whose ``music_mood`` matches
+# ``MUSIC_HIGHLIGHT_MOODS``.  Most scenes are silent — keeps music as
+# accent rather than constant background (user feedback 2026-05-04:
+# explain_loop.mp3 throughout the video was irritating).
+# "continuous" plays under every scene (legacy behaviour); "off" disables
+# music entirely (equivalent to ENABLE_BACKGROUND_MUSIC=False).
+MUSIC_PLAYBACK_MODE: str = _str("MUSIC_PLAYBACK_MODE", "selective")
+
+# Moods that get a music bed in selective mode.  Comma-separated.  Values
+# match ``music_mood`` in the LLM vocab (NOT ``voice_mood``):
+#   uplifting | tense | curious | calm | dramatic | neutral
+# Empirically across recent runs ``tense`` appears in nearly every script
+# (the hook scene) and ``dramatic`` shows up on big reveals — those are
+# the moments where music actually lifts the moment.  Curious/uplifting
+# are softer/atmospheric and feel like wallpaper if left on; off by default.
+MUSIC_HIGHLIGHT_MOODS: str = _str(
+    "MUSIC_HIGHLIGHT_MOODS",
+    "tense,dramatic",
+)
 
 # --- Engagement upgrade ---
 

@@ -476,45 +476,87 @@ def _build_music_track_from_manifest(
     video_starts: list[float],
     video_ends: list[float],
 ) -> AudioSegment | None:
-    """Music bed that swaps mood at the actual visual scene boundaries."""
-    from config import ENABLE_MOOD_MUSIC
+    """Music bed that swaps mood at the actual visual scene boundaries.
+
+    Honors ``MUSIC_PLAYBACK_MODE`` from config:
+      * ``"selective"`` (default): music plays during intro card, outro card,
+        and scenes whose mood is in ``MUSIC_HIGHLIGHT_MOODS`` only.  Most
+        scenes are silent.  This is the user-preferred default
+        (2026-05-04: continuous music with explain_loop.mp3 was irritating).
+      * ``"continuous"``: legacy mode, music under every scene.
+      * ``"off"``: returns ``None`` (no music track).
+    """
+    from config import ENABLE_MOOD_MUSIC, MUSIC_HIGHLIGHT_MOODS, MUSIC_PLAYBACK_MODE
+
+    mode = (MUSIC_PLAYBACK_MODE or "selective").strip().lower()
+    if mode == "off":
+        return None
+    selective = mode == "selective"
+
+    highlight_moods = {
+        m.strip().lower()
+        for m in (MUSIC_HIGHLIGHT_MOODS or "").split(",")
+        if m.strip()
+    }
 
     track = AudioSegment.silent(total_ms)
+    overlaid_any = False
 
-    # Leading bed [0, scene_1_start] — covers intro + title cards.
-    lead_end_ms = int(round(video_starts[0] * 1000)) if video_starts else 0
-    if lead_end_ms > 0:
-        lead = _load_background_music(category, "calm")
-        if lead is not None:
-            lead = lead + music_volume_db
-            loops = (lead_end_ms // len(lead)) + 1
-            track = track.overlay((lead * loops)[:lead_end_ms].fade_out(400))
-
-    # Per-scene beds, one per scene, spanning [video_start_n, video_start_{n+1}]
-    # so each mood bed exactly matches the visible scene's timeline.
-    n_scenes = len(video_starts)
-    for i, vstart in enumerate(video_starts):
-        if i + 1 < n_scenes:
-            end_ms = int(round(video_starts[i + 1] * 1000))
-        else:
-            end_ms = total_ms
-        start_ms = int(round(vstart * 1000))
+    def _overlay_bed(start_ms: int, end_ms: int, mood: str) -> bool:
+        nonlocal track
         end_ms = max(start_ms, min(end_ms, total_ms))
         seg_len_ms = end_ms - start_ms
         if seg_len_ms <= 0:
-            continue
-
-        mood = scene_moods[i] if i < len(scene_moods) else ""
+            return False
         loop = _load_background_music(category, mood) if (ENABLE_MOOD_MUSIC and mood) \
             else _load_background_music(category)
         if loop is None:
-            continue
+            return False
         loop = loop + music_volume_db
         loops = (seg_len_ms // len(loop)) + 1
-        bed = (loop * loops)[:seg_len_ms].fade_in(400).fade_out(400)
+        # Longer fades in selective mode so the music breathes in/out
+        # rather than chopping mid-bar.
+        fade = 700 if selective else 400
+        fade = min(fade, max(80, seg_len_ms // 3))
+        bed = (loop * loops)[:seg_len_ms].fade_in(fade).fade_out(fade)
         track = track.overlay(bed, position=start_ms)
+        return True
 
-    return track
+    # Leading bed [0, scene_1_start] — covers intro + title cards.
+    # Always present (in selective mode, the intro is one of the "short
+    # periods" the user wants music for).
+    lead_end_ms = int(round(video_starts[0] * 1000)) if video_starts else 0
+    if lead_end_ms > 0:
+        if _overlay_bed(0, lead_end_ms, "calm"):
+            overlaid_any = True
+
+    # Per-scene beds.  In selective mode, only scenes with a highlight mood
+    # get a bed; in continuous mode, every scene does.
+    n_scenes = len(video_starts)
+    for i, vstart in enumerate(video_starts):
+        mood = (scene_moods[i] if i < len(scene_moods) else "").strip().lower()
+        if selective and mood not in highlight_moods:
+            continue
+
+        if i + 1 < n_scenes:
+            end_ms = int(round(video_starts[i + 1] * 1000))
+        else:
+            # Last scene: extend through outro
+            end_ms = total_ms
+        start_ms = int(round(vstart * 1000))
+        if _overlay_bed(start_ms, end_ms, mood):
+            overlaid_any = True
+
+    # Trailing bed for outro card if the last scene wasn't a highlight
+    # (so the video doesn't end on dead silence).  Use the last scene's
+    # video_end_seconds onwards.
+    if selective and video_ends:
+        last_scene_end_ms = int(round(video_ends[-1] * 1000))
+        if last_scene_end_ms < total_ms:
+            if _overlay_bed(last_scene_end_ms, total_ms, "calm"):
+                overlaid_any = True
+
+    return track if overlaid_any else None
 
 
 def _probe_duration_seconds(path: str) -> float | None:
