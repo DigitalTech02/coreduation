@@ -92,9 +92,11 @@ MUSIC_HIGHLIGHT_MOODS: str = _str(
 )
 
 # Whether selective mode adds a brief music bed under the intro card +
-# title card and under the outro card.  Off by default — the user found
-# even those short stings contributed to "continuous score" feel.
-MUSIC_INCLUDE_INTRO_OUTRO_BEDS: bool = _bool("MUSIC_INCLUDE_INTRO_OUTRO_BEDS", False)
+# title card and under the outro card.  On by default — user feedback
+# 2026-05-05: the video felt empty opening and closing in dead silence.
+# At MUSIC_VOLUME_DB=-36 these stings are subtle (~5s + ~3.5s) and frame
+# the video without contributing to "continuous score" feel.
+MUSIC_INCLUDE_INTRO_OUTRO_BEDS: bool = _bool("MUSIC_INCLUDE_INTRO_OUTRO_BEDS", True)
 
 # --- Engagement upgrade ---
 
