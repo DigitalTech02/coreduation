@@ -114,11 +114,46 @@ show_header_breakdown, focus_camera, reset_camera.
 - The CTA can mention "the full video" or "the full breakdown" — the user
   will paste the YouTube link in the platform's caption.
 
+# ACTION JSON SHAPES (use these EXACT field names — every action object MUST have a "type")
+
+```json
+{"type": "show_text_block", "text": "Your password isn't safe.", "subtitle": ""}
+```
+```json
+{"type": "show_bullet_list", "title": "How TLS protects you",
+ "items": ["Encrypts every packet", "Verifies the server identity", "Detects tampering"]}
+```
+```json
+{"type": "emphasize_text", "text": "every credit card payment", "duration": 1.0}
+```
+```json
+{"type": "pulse_element", "target_id": "key_phrase"}
+```
+```json
+{"type": "flash_cut", "duration": 0.18}
+```
+```json
+{"type": "zoom_punch", "duration": 0.30, "scale": 1.15}
+```
+```json
+{"type": "scene_transition", "kind": "fade"}
+```
+```json
+{"type": "show_code_block", "language": "bash",
+ "lines": ["openssl s_client -connect", "  example.com:443"]}
+```
+
+EVERY action object you emit MUST include the "type" field.  Do NOT emit
+empty placeholders like ``{}`` or ``{"type": ""}`` — they will be stripped
+and the scene will look empty.
+
 # OUTPUT FORMAT
 
 Return JSON matching the SemanticVideoScript schema with EXACTLY 4 scenes.
 Required per scene: scene_id, title, type, narration, visual_description,
 actions, estimated_duration, voice_mood, music_mood, pause_after.
+Use descriptive scene_id values like "hook-stakes", "tension-mitm",
+"payoff-tls-flow", "cta-watch-full" — not "scene1", "scene2".
 
 Top-level fields (use these EXACT names):
 - topic: a punchy <=8-word headline (NOT the original long-form topic name)

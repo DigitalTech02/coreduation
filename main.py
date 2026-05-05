@@ -544,11 +544,19 @@ def run_shorts_pipeline(
 
     logger.info("--- Shorts step 1: distilling viral script ---")
     script = generate_shorts_script(topic, long_form_script=long_form_script, category=category)
-    repair_duplicate_ids(script.scenes)
+    script = repair_duplicate_ids(script)
 
     if not script.scenes:
         logger.error("Shorts script has no scenes — aborting")
         return None
+
+    total_actions = sum(len(s.actions) for s in script.scenes)
+    if total_actions < len(script.scenes):
+        logger.warning(
+            "Shorts script has only %d actions across %d scenes — "
+            "the LLM may have emitted typeless action placeholders that got "
+            "stripped.  Visuals will be sparse.", total_actions, len(script.scenes),
+        )
 
     (shorts_dir / "script.json").write_text(
         json.dumps(script.model_dump(by_alias=True), indent=2),
