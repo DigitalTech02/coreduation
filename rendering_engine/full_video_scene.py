@@ -284,11 +284,18 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             except Exception as e:
                 logger.debug("Keyword burst skipped: %s", e)
 
-        # Shorts mode: render a per-scene visual metaphor BEFORE actions
-        # so the upper third of the canvas is filled before the narration
-        # starts.  Metaphor is auto-cleared by _clear_scene at scene end
-        # (registered as "presentation").
+        # Shorts mode: paint a mood-keyed background glow + render a
+        # per-scene visual metaphor BEFORE actions so the canvas is fully
+        # populated before the narration starts.  Both are tagged with a
+        # custom "shorts_chrome" category so they survive the
+        # ``state.clear_presentation`` call that fires when text/bullet
+        # actions render — this was the bug in v2 that made every metaphor
+        # invisible.  Cleared explicitly at scene end below.
         if is_shorts:
+            try:
+                _add_shorts_scene_glow(scene, state, sc.get("voice_mood") or "")
+            except Exception as e:
+                logger.debug("Shorts glow skipped for scene %d: %s", i, e)
             try:
                 from rendering_engine.shorts_metaphors import (
                     pick_shorts_metaphor, render_shorts_metaphor,
@@ -365,6 +372,17 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             try:
                 from rendering_engine.subtitles import clear_scheduled_subtitles
                 clear_scheduled_subtitles(scene, scheduled_subtitles)
+            except Exception:
+                pass
+
+        if is_shorts:
+            try:
+                from rendering_engine.shorts_metaphors import clear_shorts_metaphor
+                clear_shorts_metaphor(scene, state)
+            except Exception:
+                pass
+            try:
+                _clear_shorts_glow(scene, state)
             except Exception:
                 pass
 
@@ -627,16 +645,16 @@ def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> 
         return
 
     accent = CATEGORY_ACCENT.get(category, PRIMARY)
-    txt = Text(label, font_size=26, color=WHITE, weight="BOLD")
+    txt = Text(label, font_size=38, color=WHITE, weight="BOLD")
 
     pill = RoundedRectangle(
-        width=txt.width + 0.7,
-        height=txt.height + 0.32,
-        corner_radius=0.18,
+        width=txt.width + 1.0,
+        height=txt.height + 0.45,
+        corner_radius=0.25,
         color=accent,
         stroke_width=0,
         fill_color=accent,
-        fill_opacity=0.92,
+        fill_opacity=0.95,
     )
     pill.move_to(txt.get_center())
     badge = VGroup(pill, txt)
@@ -644,7 +662,7 @@ def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> 
     def _anchor(mob):
         try:
             frame = scene.camera.frame
-            cy = frame.get_top()[1] - mob.height / 2 - 0.30
+            cy = frame.get_top()[1] - mob.height / 2 - 0.32
             mob.move_to([0, cy, 0])
         except Exception:
             mob.to_edge(UP, buff=0.35)
@@ -655,6 +673,66 @@ def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> 
     scene.add(badge)
     state.objects["__shorts_badge"] = badge
     state._categories["__shorts_badge"] = "persistent"
+
+
+# Mood → background-glow color.  Painted as a large faint blob behind the
+# scene's text card so empty canvas reads as "themed background", not "dead
+# space".  Matches the emotional tone of the scene's voice_mood.
+_SHORTS_MOOD_GLOW: dict[str, str] = {
+    "hook":       "#ff4d4d",   # urgent red
+    "dramatic":   "#ff5e1f",   # angry orange
+    "urgent":     "#ff5e1f",
+    "narrator":   "#3fb6ff",   # cool blue (analytical)
+    "analytical": "#3fb6ff",
+    "calm":       "#3fb6ff",
+    "excited":    "#ffd23f",   # gold (CTA energy)
+}
+
+
+def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> None:
+    """Mood-keyed radial glow painted behind the scene's content.
+
+    A single big translucent circle/ellipse in the mood color, sitting at
+    z=-50 (behind decor + content, in front of the gradient background).
+    Provides per-scene color storytelling — viewer reads "danger → analysis
+    → solution → call to action" through background hue alone.
+    """
+    color = _SHORTS_MOOD_GLOW.get((voice_mood or "").strip().lower())
+    if not color:
+        return
+
+    from manim import Circle  # local import keeps top-level imports tidy
+    glow = Circle(radius=4.8, color=color, stroke_width=0)
+    glow.set_fill(color, opacity=0.14)
+    glow.move_to([0, 0.5, 0])
+    glow.set_z_index(-50)
+
+    # Quick fade-in so the color shift is visible at scene start.
+    try:
+        glow.set_opacity(0.0)
+        scene.add(glow)
+        scene.play(FadeIn(glow), run_time=0.35)
+    except Exception:
+        scene.add(glow)
+
+    state.objects["__shorts_glow"] = glow
+    state._categories["__shorts_glow"] = "shorts_chrome"
+
+
+def _clear_shorts_glow(scene: Any, state: SceneState) -> None:
+    glow = state.objects.get("__shorts_glow")
+    if glow is None:
+        return
+    try:
+        scene.play(FadeOut(glow), run_time=0.25)
+    except Exception:
+        pass
+    try:
+        scene.remove(glow)
+    except Exception:
+        pass
+    state.objects.pop("__shorts_glow", None)
+    state._categories.pop("__shorts_glow", None)
 
 
 def _add_shorts_progress_bar(

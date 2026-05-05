@@ -421,8 +421,8 @@ def schedule_subtitles_for_scene(
     except Exception:
         is_vertical = False
 
-    sub_font = int(SUBTITLE_FONT_SIZE_DISPLAY * 1.5) if is_vertical else SUBTITLE_FONT_SIZE_DISPLAY
-    sub_max_w = 6.5 if is_vertical else SUBTITLE_MAX_WIDTH
+    sub_font = int(SUBTITLE_FONT_SIZE_DISPLAY * 1.95) if is_vertical else SUBTITLE_FONT_SIZE_DISPLAY
+    sub_max_w = 7.2 if is_vertical else SUBTITLE_MAX_WIDTH
 
     for chunk_text, (start, end) in zip(chunks, slices):
         txt = Text(

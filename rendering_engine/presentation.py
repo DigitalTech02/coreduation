@@ -322,20 +322,21 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
 
     # Shorts mode: BIG, bold, dominant text on a 9:16 canvas so the content
     # is the primary visual element, not a postage stamp.  TikTok / Reels /
-    # Shorts conventions use captions that span ~85% of the canvas width.
+    # Shorts conventions use captions that span ~90% of the canvas width
+    # at chunky font sizes (~70-90px equivalent on 1080×1920).
     is_shorts = getattr(state, "mode", "long") == "shorts"
-    title_size = int(TITLE_FONT_SIZE * 1.9) if is_shorts else TITLE_FONT_SIZE
-    body_size = int(BODY_FONT_SIZE * 1.7) if is_shorts else BODY_FONT_SIZE
-    body_max_width = 6.6 if is_shorts else 10.0
-    body_break_threshold = 50 if is_shorts else 100
+    title_size = int(TITLE_FONT_SIZE * 2.4) if is_shorts else TITLE_FONT_SIZE
+    body_size = int(BODY_FONT_SIZE * 2.0) if is_shorts else BODY_FONT_SIZE
+    body_max_width = 7.2 if is_shorts else 10.0
+    body_break_threshold = 40 if is_shorts else 100
 
     if action.title:
         title_mob = Text(
             action.title, font_size=title_size, color=PRIMARY, weight="BOLD",
         )
         # Title can't exceed canvas width either.  In shorts the safe width
-        # is ~6.8 units; horizontal it's ~12.
-        max_title_width = 6.8 if is_shorts else 12.0
+        # is ~7.2 units; horizontal it's ~12.
+        max_title_width = 7.2 if is_shorts else 12.0
         if title_mob.width > max_title_width:
             title_mob.set_width(max_title_width)
         parts.append(title_mob)
@@ -385,7 +386,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
 
     # Shorts mode: bigger fonts so the bullet card fills the vertical canvas.
     is_shorts = getattr(state, "mode", "long") == "shorts"
-    bullet_title_size = int(SUBTITLE_FONT_SIZE * 1.8) if is_shorts else SUBTITLE_FONT_SIZE
+    bullet_title_size = int(SUBTITLE_FONT_SIZE * 2.0) if is_shorts else SUBTITLE_FONT_SIZE
 
     if action.title:
         title_mob = Text(
@@ -394,8 +395,8 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
         )
         parts.append(title_mob)
 
-    bullet_size = int(BODY_FONT_SIZE * 1.65) if is_shorts else BODY_FONT_SIZE
-    bullet_max_w = 6.6 if is_shorts else 10.0
+    bullet_size = int(BODY_FONT_SIZE * 1.9) if is_shorts else BODY_FONT_SIZE
+    bullet_max_w = 7.2 if is_shorts else 10.0
     bullets = []
     for item_text in action.items:
         bullet = Text(

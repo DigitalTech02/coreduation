@@ -47,7 +47,12 @@ logger = logging.getLogger(__name__)
 
 # Vertical position of all metaphors — top of the safe content area, well
 # above where the text card sits in shorts mode.
-_METAPHOR_CENTER_Y = 4.6
+_METAPHOR_CENTER_Y = 4.4
+
+# Scale applied to every built metaphor before placing on canvas.  Larger
+# values produce more dominant icons.  Tuned so even the simplest icon
+# (warning triangle) feels like a hero element, not decoration.
+_METAPHOR_SCALE = 1.55
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +330,11 @@ def render_shorts_metaphor(
             logger.debug("Metaphor builder failed for %s: %s", metaphor_name, e)
             return None
 
+    # Scale up so the metaphor reads as a hero element, not decoration.
+    try:
+        mob.scale(_METAPHOR_SCALE)
+    except Exception:
+        pass
     mob.move_to([0, _METAPHOR_CENTER_Y, 0])
     mob.set_z_index(20)
 
@@ -340,6 +350,33 @@ def render_shorts_metaphor(
         except Exception:
             pass
 
-    state.objects[f"__shorts_metaphor_{metaphor_name}"] = mob
-    state._categories[f"__shorts_metaphor_{metaphor_name}"] = "presentation"
+    # Register with a CUSTOM category (not "presentation") + ``__`` prefix.
+    # This is critical: ``state.clear_presentation`` runs before every
+    # show_text_block / show_bullet_list and wipes anything tagged
+    # "presentation" — which would erase the metaphor the moment the text
+    # card renders.  Custom category survives both clear_presentation AND
+    # _clear_scene's persistent-keep logic; we manually remove between
+    # scenes via clear_shorts_metaphor() called from the per-scene loop.
+    key = "__shorts_metaphor"
+    state.objects[key] = mob
+    state._categories[key] = "shorts_chrome"
     return mob
+
+
+def clear_shorts_metaphor(scene: Any, state: Any) -> None:
+    """Fade-out and remove the current scene's metaphor before the next one."""
+    key = "__shorts_metaphor"
+    mob = state.objects.get(key)
+    if mob is None:
+        return
+    try:
+        from manim import FadeOut
+        scene.play(FadeOut(mob, shift=DOWN * 0.2), run_time=0.25)
+    except Exception:
+        pass
+    try:
+        scene.remove(mob)
+    except Exception:
+        pass
+    state.objects.pop(key, None)
+    state._categories.pop(key, None)
