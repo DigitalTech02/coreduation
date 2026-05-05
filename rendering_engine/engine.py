@@ -700,9 +700,11 @@ def render_full_semantic_video(
 
     work_dir = Path(tempfile.mkdtemp(prefix="semantic_render_"))
     media_dir = work_dir / "media"
+    manifest_path = work_dir / "scene_timings.json"
 
     env = os.environ.copy()
     env["SEMANTIC_DATA_JSON"] = json_path
+    env["SEMANTIC_TIMING_MANIFEST"] = str(manifest_path)
 
     cmd = [
         "python",
@@ -751,4 +753,15 @@ def render_full_semantic_video(
     out.unlink(missing_ok=True)
     shutil.move(str(rendered), str(out))
     logger.info("Silent full video: %s", out)
+
+    # Copy the timing manifest next to the silent video so the audio mux
+    # can rebuild narration with per-scene boundaries that match the
+    # actual rendered timeline (eliminates accumulated AV drift).
+    if manifest_path.exists():
+        try:
+            shutil.copy(str(manifest_path), str(dest_dir / "scene_timings.json"))
+            logger.info("Scene timing manifest: %s", dest_dir / "scene_timings.json")
+        except Exception as e:
+            logger.warning("Could not copy scene timing manifest: %s", e)
+
     return str(out)

@@ -313,6 +313,210 @@ def build_semantic_narration_track(
     return str(out)
 
 
+def build_narration_track_from_manifest(
+    scene_audio_paths: list[str],
+    scene_ids: list[str],
+    manifest: dict,
+    output_path: str,
+    *,
+    scene_actions: list[list[dict]] | None = None,
+    category: str = "",
+    scene_moods: list[str] | None = None,
+) -> str:
+    """Lay narration audio onto the timeline declared by the renderer manifest.
+
+    The manifest (written by ``rendering_engine.full_video_scene`` during
+    Manim render) gives the actual ``video_start_seconds`` and
+    ``video_end_seconds`` for each scene in the silent video.  Each scene's
+    TTS mp3 is overlaid at exactly its ``video_start_seconds`` so the
+    narration can never drift relative to what the viewer sees, regardless
+    of how long action animations actually took to play.
+
+    The output's total duration equals ``manifest["total_video_duration"]``,
+    so ``ffmpeg -shortest`` won't crop the outro and no trailing pad is
+    required.
+
+    SFX (per action) and per-mood background music are also positioned via
+    the manifest: SFX uses ``video_start + (action_idx/n_actions) * audio_duration``;
+    music swaps at scene boundaries that match the visual cuts.
+
+    Falls back gracefully if a scene_id isn't in the manifest (logs warning,
+    uses positional match).  Caller should fall back to
+    ``build_semantic_narration_track`` if the manifest itself is unavailable.
+    """
+    from config import ENABLE_BACKGROUND_MUSIC, ENABLE_SFX, MUSIC_VOLUME_DB, SFX_VOLUME_DB
+
+    if not scene_audio_paths:
+        raise ValueError("scene_audio_paths must not be empty")
+    if len(scene_ids) != len(scene_audio_paths):
+        raise ValueError("scene_ids and scene_audio_paths must have the same length")
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    total_dur_s = float(manifest.get("total_video_duration", 0.0))
+    if total_dur_s <= 0:
+        raise ValueError("Manifest has no valid total_video_duration")
+    total_ms = int(round(total_dur_s * 1000))
+
+    track = AudioSegment.silent(total_ms)
+    scene_by_id = {s.get("scene_id"): s for s in manifest.get("scenes", [])}
+    manifest_list = manifest.get("scenes", [])
+
+    placed_video_starts: list[float] = []
+    placed_video_ends: list[float] = []
+    placed_audio_durations: list[float] = []
+    placed_actions: list[list[dict]] = []
+    placed_moods: list[str] = []
+
+    for i, (sid, p) in enumerate(zip(scene_ids, scene_audio_paths)):
+        m = scene_by_id.get(sid)
+        if m is None and i < len(manifest_list):
+            logger.warning(
+                "scene_id '%s' not in manifest; falling back to positional match", sid,
+            )
+            m = manifest_list[i]
+        if m is None:
+            logger.warning("Scene '%s' not in manifest — skipping in mux", sid)
+            continue
+
+        try:
+            seg = AudioSegment.from_file(p)
+        except Exception as e:
+            logger.warning("Could not load TTS audio for '%s' (%s): %s", sid, p, e)
+            continue
+
+        v_start = float(m.get("video_start_seconds", 0.0))
+        v_end = float(m.get("video_end_seconds", v_start + len(seg) / 1000.0))
+        pos_ms = int(round(v_start * 1000))
+        if pos_ms < 0 or pos_ms >= total_ms:
+            logger.warning(
+                "Scene '%s' video_start=%.2fs is outside [0, %.2fs] — skipping",
+                sid, v_start, total_dur_s,
+            )
+            continue
+
+        # Trim mp3 if it would overrun the manifest's slot for this scene.
+        # Should be rare because the renderer reserves >= audio_duration for
+        # each scene, but enforce it so we never spill into the next scene.
+        slot_ms = int(round((v_end - v_start) * 1000))
+        if slot_ms > 0 and len(seg) > slot_ms + 50:
+            logger.warning(
+                "Scene '%s' TTS audio (%.2fs) longer than rendered slot (%.2fs); trimming",
+                sid, len(seg) / 1000.0, slot_ms / 1000.0,
+            )
+            seg = seg[:slot_ms]
+
+        track = track.overlay(seg, position=pos_ms)
+        placed_video_starts.append(v_start)
+        placed_video_ends.append(v_end)
+        placed_audio_durations.append(len(seg) / 1000.0)
+        placed_actions.append(scene_actions[i] if scene_actions and i < len(scene_actions) else [])
+        placed_moods.append(scene_moods[i] if scene_moods and i < len(scene_moods) else "")
+
+    if ENABLE_SFX and any(placed_actions):
+        sfx_track = _build_sfx_track_from_manifest(
+            placed_actions, placed_video_starts, placed_audio_durations,
+            total_ms, SFX_VOLUME_DB,
+        )
+        if sfx_track is not None:
+            track = track.overlay(sfx_track, position=0)
+            logger.info("Mixed SFX track into manifest-aligned narration")
+
+    if ENABLE_BACKGROUND_MUSIC and placed_video_starts:
+        music_track = _build_music_track_from_manifest(
+            total_ms, MUSIC_VOLUME_DB, category,
+            scene_moods=placed_moods,
+            video_starts=placed_video_starts,
+            video_ends=placed_video_ends,
+        )
+        if music_track is not None:
+            track = track.overlay(music_track)
+            logger.info("Mixed background music into manifest-aligned narration")
+
+    track.export(str(out), format="mp3")
+    logger.info(
+        "Manifest-aligned narration: %s (%.2fs, %d scenes placed)",
+        out, total_dur_s, len(placed_video_starts),
+    )
+    return str(out)
+
+
+def _build_sfx_track_from_manifest(
+    scene_actions: list[list[dict]],
+    video_starts: list[float],
+    audio_durations: list[float],
+    total_ms: int,
+    sfx_volume_db: float,
+) -> AudioSegment | None:
+    sfx_track = AudioSegment.silent(total_ms)
+    any_sfx = False
+    for actions, vstart, adur in zip(scene_actions, video_starts, audio_durations):
+        n = max(len(actions), 1)
+        time_per_action_ms = (adur * 1000.0) / n
+        cursor_ms = float(vstart * 1000.0)
+        for action in actions:
+            sfx = _load_sfx(action.get("type", ""))
+            if sfx is not None:
+                sfx = sfx + sfx_volume_db
+                pos = int(cursor_ms)
+                if pos + len(sfx) <= len(sfx_track):
+                    sfx_track = sfx_track.overlay(sfx, position=pos)
+                    any_sfx = True
+            cursor_ms += time_per_action_ms
+    return sfx_track if any_sfx else None
+
+
+def _build_music_track_from_manifest(
+    total_ms: int,
+    music_volume_db: float,
+    category: str,
+    *,
+    scene_moods: list[str],
+    video_starts: list[float],
+    video_ends: list[float],
+) -> AudioSegment | None:
+    """Music bed that swaps mood at the actual visual scene boundaries."""
+    from config import ENABLE_MOOD_MUSIC
+
+    track = AudioSegment.silent(total_ms)
+
+    # Leading bed [0, scene_1_start] — covers intro + title cards.
+    lead_end_ms = int(round(video_starts[0] * 1000)) if video_starts else 0
+    if lead_end_ms > 0:
+        lead = _load_background_music(category, "calm")
+        if lead is not None:
+            lead = lead + music_volume_db
+            loops = (lead_end_ms // len(lead)) + 1
+            track = track.overlay((lead * loops)[:lead_end_ms].fade_out(400))
+
+    # Per-scene beds, one per scene, spanning [video_start_n, video_start_{n+1}]
+    # so each mood bed exactly matches the visible scene's timeline.
+    n_scenes = len(video_starts)
+    for i, vstart in enumerate(video_starts):
+        if i + 1 < n_scenes:
+            end_ms = int(round(video_starts[i + 1] * 1000))
+        else:
+            end_ms = total_ms
+        start_ms = int(round(vstart * 1000))
+        end_ms = max(start_ms, min(end_ms, total_ms))
+        seg_len_ms = end_ms - start_ms
+        if seg_len_ms <= 0:
+            continue
+
+        mood = scene_moods[i] if i < len(scene_moods) else ""
+        loop = _load_background_music(category, mood) if (ENABLE_MOOD_MUSIC and mood) \
+            else _load_background_music(category)
+        if loop is None:
+            continue
+        loop = loop + music_volume_db
+        loops = (seg_len_ms // len(loop)) + 1
+        bed = (loop * loops)[:seg_len_ms].fade_in(400).fade_out(400)
+        track = track.overlay(bed, position=start_ms)
+
+    return track
+
+
 def _probe_duration_seconds(path: str) -> float | None:
     """Return media file duration in seconds via ffprobe, or None on failure."""
     try:

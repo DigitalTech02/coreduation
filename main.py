@@ -109,7 +109,11 @@ def run_legacy_pipeline(topic: str) -> None:
 def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
     """Semantic pipeline: repair ids -> validate -> retention -> TTS -> audio -> render -> mux."""
     from llm_orchestrator_semantic import generate_semantic_script
-    from semantic_audio import build_semantic_narration_track, mux_video_with_audio
+    from semantic_audio import (
+        build_narration_track_from_manifest,
+        build_semantic_narration_track,
+        mux_video_with_audio,
+    )
     from semantic_repair import repair_duplicate_ids
     from semantic_validation import validate_layout, validate_semantic_script
     from rendering_engine.engine import render_full_semantic_video
@@ -214,28 +218,59 @@ def run_semantic_pipeline(topic: str, category: str = "auto") -> None:
         except Exception as e:
             logger.warning("Whisper alignment skipped: %s", e)
 
-    scene_paths = [s.audio_path for s in script.scenes if s.audio_path]
+    scenes_with_audio = [s for s in script.scenes if s.audio_path]
+    scene_paths = [s.audio_path for s in scenes_with_audio]
+    scene_ids = [s.scene_id for s in scenes_with_audio]
     scene_actions = [
         [a.model_dump(by_alias=True) for a in s.actions]
-        for s in script.scenes
+        for s in scenes_with_audio
     ]
-    scene_moods = [getattr(s, "music_mood", "") or "" for s in script.scenes]
-    scene_pauses = [getattr(s, "pause_after", 0.0) or 0.0 for s in script.scenes]
+    scene_moods = [getattr(s, "music_mood", "") or "" for s in scenes_with_audio]
+    scene_pauses = [getattr(s, "pause_after", 0.0) or 0.0 for s in scenes_with_audio]
     combined_audio = str(run_dir / "full_narration.mp3")
-    build_semantic_narration_track(
-        scene_paths,
-        output_path=combined_audio,
-        scene_actions=scene_actions,
-        category=script.category,
-        scene_moods=scene_moods,
-        scene_pauses=scene_pauses,
-    )
 
     logger.info("--- Step 3: Rendering full video (single Manim scene) ---")
     silent_video = render_full_semantic_video(script, output_dir=video_dir)
     if not silent_video:
         logger.error("Full semantic render failed. Aborting.")
         return
+
+    # Manifest-aligned narration: the renderer wrote scene_timings.json
+    # with each scene's actual video_start_seconds.  Use those to lay
+    # out audio so per-scene boundaries match the silent video exactly,
+    # eliminating the cross-scene drift that accumulates when action
+    # animations overshoot their declared budget.  Falls back to the
+    # legacy estimated-cumulative builder only if the manifest is missing.
+    manifest_path = video_dir / "scene_timings.json"
+    used_manifest = False
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            build_narration_track_from_manifest(
+                scene_paths,
+                scene_ids,
+                manifest,
+                output_path=combined_audio,
+                scene_actions=scene_actions,
+                category=script.category,
+                scene_moods=scene_moods,
+            )
+            used_manifest = True
+        except Exception as e:
+            logger.warning(
+                "Manifest-aligned audio build failed (%s); falling back to legacy builder",
+                e,
+            )
+
+    if not used_manifest:
+        build_semantic_narration_track(
+            scene_paths,
+            output_path=combined_audio,
+            scene_actions=scene_actions,
+            category=script.category,
+            scene_moods=scene_moods,
+            scene_pauses=scene_pauses,
+        )
 
     from config import (
         ENABLE_VISION_QA,

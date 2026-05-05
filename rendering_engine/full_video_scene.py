@@ -7,7 +7,10 @@ that reference them (e.g. send_packet from a node created earlier).
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from manim import DOWN, LEFT, ORIGIN, RIGHT, UP, Dot, FadeIn, FadeOut, Line, Text, VGroup, WHITE
@@ -205,9 +208,27 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         play_intro_card,
         play_outro_card,
     )
+    # Per-scene timing manifest — written so the audio mux can place each
+    # scene's narration at the actual rendered video_start, not at the
+    # estimated `audio_dur + pause_after + gap` cumulative position.  This
+    # is the source of truth for AV alignment; without it, action animations
+    # that overshoot their declared budget cause subtitle/narration drift to
+    # accumulate across scenes.  See semantic_audio.build_narration_track_from_manifest.
+    manifest_path = os.environ.get("SEMANTIC_TIMING_MANIFEST")
+    manifest: dict[str, Any] = {
+        "intro_card_end_seconds": 0.0,
+        "title_card_end_seconds": 0.0,
+        "scenes": [],
+        "outro_start_seconds": 0.0,
+        "outro_end_seconds": 0.0,
+        "total_video_duration": 0.0,
+    }
+
     play_intro_card(scene, category)
+    manifest["intro_card_end_seconds"] = float(scene.renderer.time)
 
     _play_title_card(scene, topic, subtitle, category)
+    manifest["title_card_end_seconds"] = float(scene.renderer.time)
 
     future_refs = _collect_future_refs(scenes)
     state = SceneState()
@@ -247,6 +268,17 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
                 logger.debug("Keyword burst skipped: %s", e)
 
         t0 = scene.renderer.time
+
+        # Record the moment this scene's narration audio MUST start in the
+        # final mux.  Subtitles also anchor their timing to t0 (via
+        # scene.renderer.time inside the scheduler), so audio + subtitles
+        # share a single source of truth and cannot drift apart.
+        manifest["scenes"].append({
+            "scene_id": sc.get("scene_id", f"scene_{i}"),
+            "video_start_seconds": float(t0),
+            "audio_duration": float(audio_dur),
+            "pause_after": float(sc.get("pause_after", 0.0) or 0.0),
+        })
 
         # Schedule subtitles BEFORE running actions so each chunk appears
         # at its scene-relative start time even while actions are playing.
@@ -302,10 +334,27 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         keep = future_refs[i] if i < len(future_refs) else set()
         _clear_scene(scene, state, keep)
 
+        # Record the actual end-of-scene time after wait + clear-fade.
+        # Used by audio mux for per-scene music swaps that match visuals.
+        if manifest["scenes"]:
+            manifest["scenes"][-1]["video_end_seconds"] = float(scene.renderer.time)
+
         if i < n - 1 and SCENE_GAP_SECONDS > 0:
             scene.wait(SCENE_GAP_SECONDS)
 
+    manifest["outro_start_seconds"] = float(scene.renderer.time)
     play_outro_card(scene, category, topic)
+    manifest["outro_end_seconds"] = float(scene.renderer.time)
+    manifest["total_video_duration"] = float(scene.renderer.time)
+
+    if manifest_path:
+        try:
+            Path(manifest_path).write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8",
+            )
+            logger.info("Wrote scene timing manifest: %s", manifest_path)
+        except Exception as e:
+            logger.warning("Could not write timing manifest: %s", e)
 
 
 # ---------------------------------------------------------------------------
