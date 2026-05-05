@@ -65,6 +65,131 @@ def _truncate_scenes(data: dict, max_scenes: int = _MAX_SHORTS_SCENES) -> dict:
     return data
 
 
+def _inject_ai_illustrations(data: dict, topic: str) -> dict:
+    """Auto-inject a ``show_image`` action at the start of every shorts scene.
+
+    Gated by ``config.ENABLE_AI_BROLL`` — if disabled, this is a no-op.
+    Otherwise: for each scene without an existing show_image action, derive
+    a vibrant cartoon-style DALL-E prompt from the scene's narration +
+    voice_mood and prepend a show_image action.  The DALL-E call happens
+    lazily inside ``render_show_image`` (cached on disk by prompt hash).
+
+    Why auto-inject vs. asking the LLM to emit image_prompt: the LLM will
+    forget half the time, and even when it remembers the prompts are
+    inconsistent in style.  Auto-derivation guarantees every scene gets
+    a visually consistent illustration in the user's preferred style.
+    """
+    try:
+        from config import ENABLE_AI_BROLL
+    except Exception:
+        return data
+    if not ENABLE_AI_BROLL:
+        return data
+
+    for scene in data.get("scenes", []):
+        actions = scene.get("actions") or []
+        # Skip if LLM already emitted show_image for this scene
+        if any((a or {}).get("type") == "show_image" for a in actions):
+            continue
+
+        prompt = _derive_image_prompt(
+            scene_id=scene.get("scene_id", ""),
+            narration=scene.get("narration", ""),
+            voice_mood=scene.get("voice_mood", ""),
+            topic=topic,
+        )
+        if not prompt:
+            continue
+
+        # Use a chunk of the scene's audio budget for the Ken Burns reveal —
+        # capped at 2.2 s so the image doesn't eat the whole scene.  Caller
+        # later renders text/bullets after the image fades out.
+        est_dur = float(scene.get("estimated_duration", 8.0) or 8.0)
+        ken_burns_dur = max(1.4, min(2.2, est_dur * 0.32))
+
+        actions.insert(0, {
+            "type": "show_image",
+            "image_path": "",
+            "image_prompt": prompt,
+            "duration": ken_burns_dur,
+            "pan": "in",
+            "caption": "",
+        })
+        scene["actions"] = actions
+        logger.info(
+            "Injected AI broll into shorts scene '%s' (prompt: %r)",
+            scene.get("scene_id", "?"), prompt[:80],
+        )
+
+    return data
+
+
+_AI_BROLL_BASE_STYLE = (
+    "vibrant flat cartoon illustration, neon accent colors, dark navy "
+    "background, bold outlines, vector style, centered composition, "
+    "no text, clean infographic style, square 1:1"
+)
+
+
+def _derive_image_prompt(
+    scene_id: str, narration: str, voice_mood: str, topic: str,
+) -> str:
+    """Heuristic: pick a vibrant subject for this scene's DALL-E illustration.
+
+    Routes by scene_id keywords + voice_mood + narration content so each
+    scene of a story arc (hook → tension → payoff → CTA) gets a distinct
+    but stylistically consistent illustration.
+    """
+    sid = (scene_id or "").lower()
+    mood = (voice_mood or "").lower()
+    text = (narration or "").lower()
+    topic_short = topic[:60]
+
+    is_cta = any(k in sid for k in ("cta", "outro", "watch", "tap", "link")) \
+        or "full breakdown" in text or "link in description" in text
+    is_hook = sid.startswith("hook") or mood == "hook" \
+        or any(k in text[:80] for k in ("imagine", "what if", "every time"))
+    is_attack = any(k in text for k in (
+        "attack", "hack", "steal", "spy", "intercept", "leak", "broken", "fake",
+    ))
+    is_secure = any(k in text for k in (
+        "secure", "encrypt", "verify", "shield", "protect", "safe", "lock",
+    ))
+
+    if is_cta:
+        subject = (
+            "smartphone with a glowing red play button on screen, finger "
+            "tapping, gold spark accents, viral video thumbnail vibe"
+        )
+    elif is_hook:
+        subject = (
+            f"alarming concept illustration about {topic_short}, urgent "
+            "atmosphere, glowing neon red highlights, eye-catching"
+        )
+    elif is_attack:
+        subject = (
+            "shadowy hacker silhouette with broken padlock and red lightning, "
+            "data leak motif, danger, neon red and orange"
+        )
+    elif is_secure:
+        subject = (
+            "glowing green padlock with shield, encryption symbols flowing, "
+            "secure handshake between two devices, neon green and blue"
+        )
+    elif mood in ("dramatic", "urgent"):
+        subject = (
+            f"dramatic concept illustration about {topic_short}, intense red "
+            "and orange lighting, motion blur, big bold central object"
+        )
+    else:
+        subject = (
+            f"clean concept illustration explaining {topic_short}, friendly "
+            "robot mascot pointing at the key idea, neon blue accents"
+        )
+
+    return f"{subject}, {_AI_BROLL_BASE_STYLE}"
+
+
 def _enrich_empty_actions(data: dict) -> dict:
     """Repair empty action content so shorts never render a blank canvas.
 
@@ -207,6 +332,7 @@ def generate_shorts_script(
                 cached = _filter_to_vertical_actions(cached)
                 cached = _truncate_scenes(cached)
                 cached = _enrich_empty_actions(cached)
+                cached = _inject_ai_illustrations(cached, topic)
                 llm_script = SemanticVideoScript.model_validate(cached)
             except Exception as e:
                 logger.warning("Cached shorts script failed validation, regenerating: %s", e)
@@ -234,6 +360,7 @@ def generate_shorts_script(
             raw_dict = _filter_to_vertical_actions(raw_dict)
             raw_dict = _truncate_scenes(raw_dict)
             raw_dict = _enrich_empty_actions(raw_dict)
+            raw_dict = _inject_ai_illustrations(raw_dict, topic)
             llm_script = SemanticVideoScript.model_validate(raw_dict)
         except Exception as e:
             logger.error("Failed to parse shorts script JSON: %s", e)

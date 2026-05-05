@@ -284,32 +284,39 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             except Exception as e:
                 logger.debug("Keyword burst skipped: %s", e)
 
-        # Shorts mode: paint a mood-keyed background glow + render a
+        # Shorts mode: paint a mood-keyed background glow + (optionally) a
         # per-scene visual metaphor BEFORE actions so the canvas is fully
         # populated before the narration starts.  Both are tagged with a
         # custom "shorts_chrome" category so they survive the
         # ``state.clear_presentation`` call that fires when text/bullet
-        # actions render — this was the bug in v2 that made every metaphor
-        # invisible.  Cleared explicitly at scene end below.
+        # actions render.  Cleared explicitly at scene end below.
         if is_shorts:
             try:
                 _add_shorts_scene_glow(scene, state, sc.get("voice_mood") or "")
             except Exception as e:
                 logger.debug("Shorts glow skipped for scene %d: %s", i, e)
-            try:
-                from rendering_engine.shorts_metaphors import (
-                    pick_shorts_metaphor, render_shorts_metaphor,
-                )
-                meta_name = pick_shorts_metaphor(
-                    scene_index=i,
-                    total_scenes=len(scenes),
-                    voice_mood=sc.get("voice_mood") or "",
-                    category=category,
-                )
-                if meta_name:
-                    render_shorts_metaphor(scene, state, meta_name, category=category)
-            except Exception as e:
-                logger.debug("Shorts metaphor skipped for scene %d: %s", i, e)
+
+            # Skip the geometric metaphor when this scene has an AI
+            # illustration injected — the DALL-E image IS the hero visual.
+            # Stacking both produces a busy frame.
+            has_ai_illustration = any(
+                (a or {}).get("type") == "show_image" for a in actions
+            )
+            if not has_ai_illustration:
+                try:
+                    from rendering_engine.shorts_metaphors import (
+                        pick_shorts_metaphor, render_shorts_metaphor,
+                    )
+                    meta_name = pick_shorts_metaphor(
+                        scene_index=i,
+                        total_scenes=len(scenes),
+                        voice_mood=sc.get("voice_mood") or "",
+                        category=category,
+                    )
+                    if meta_name:
+                        render_shorts_metaphor(scene, state, meta_name, category=category)
+                except Exception as e:
+                    logger.debug("Shorts metaphor skipped for scene %d: %s", i, e)
 
         t0 = scene.renderer.time
 
