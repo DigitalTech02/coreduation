@@ -690,32 +690,52 @@ _SHORTS_MOOD_GLOW: dict[str, str] = {
 
 
 def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> None:
-    """Mood-keyed radial glow painted behind the scene's content.
+    """Mood-keyed visual layer painted behind the scene's content.
 
-    A single big translucent circle/ellipse in the mood color, sitting at
-    z=-50 (behind decor + content, in front of the gradient background).
-    Provides per-scene color storytelling — viewer reads "danger → analysis
-    → solution → call to action" through background hue alone.
+    Three stacked elements at z=-50 (above the gradient background, behind
+    all content):
+
+    1. A big translucent radial blob in the mood color, centered.
+    2. A vertical accent stripe along the LEFT edge of the canvas.
+    3. A vertical accent stripe along the RIGHT edge.
+
+    Together they fill the empty side margins with a per-scene color so the
+    viewer reads the emotional arc — danger → tension → solution → CTA —
+    through the background hue alone.
     """
     color = _SHORTS_MOOD_GLOW.get((voice_mood or "").strip().lower())
     if not color:
         return
 
-    from manim import Circle  # local import keeps top-level imports tidy
-    glow = Circle(radius=4.8, color=color, stroke_width=0)
-    glow.set_fill(color, opacity=0.14)
-    glow.move_to([0, 0.5, 0])
+    from manim import Circle, Rectangle as _Rect
+
+    glow = Circle(radius=5.6, color=color, stroke_width=0)
+    glow.set_fill(color, opacity=0.30)
+    glow.move_to([0, 0.0, 0])
     glow.set_z_index(-50)
 
-    # Quick fade-in so the color shift is visible at scene start.
-    try:
-        glow.set_opacity(0.0)
-        scene.add(glow)
-        scene.play(FadeIn(glow), run_time=0.35)
-    except Exception:
-        scene.add(glow)
+    # Vertical stripes hugging the canvas edges — adds vivid color
+    # without competing with central content.  ~0.35 wide each.
+    left_stripe = _Rect(width=0.45, height=14.0, color=color, stroke_width=0)
+    left_stripe.set_fill(color, opacity=0.38)
+    left_stripe.move_to([-3.78, 0.0, 0])  # frame_width=8 → -3.78 ≈ left edge
+    left_stripe.set_z_index(-49)
 
-    state.objects["__shorts_glow"] = glow
+    right_stripe = _Rect(width=0.45, height=14.0, color=color, stroke_width=0)
+    right_stripe.set_fill(color, opacity=0.38)
+    right_stripe.move_to([3.78, 0.0, 0])
+    right_stripe.set_z_index(-49)
+
+    layer = VGroup(glow, left_stripe, right_stripe)
+
+    try:
+        layer.set_opacity(0.0)
+        scene.add(layer)
+        scene.play(FadeIn(layer), run_time=0.35)
+    except Exception:
+        scene.add(layer)
+
+    state.objects["__shorts_glow"] = layer
     state._categories["__shorts_glow"] = "shorts_chrome"
 
 
@@ -797,34 +817,34 @@ def _add_shorts_progress_bar(
 def _play_shorts_cta_overlay(scene: Any, category: str) -> None:
     """Animated 'Watch full →' CTA overlay used on the LAST scene of a short.
 
-    Adds a downward arrow + accent label below the content card so the
-    viewer's eye lands on the CTA right as the narrator delivers it.  The
-    overlay fades out with the scene clear, no manual cleanup needed.
+    Adds a chunky bouncing arrow + accent label below the content card so
+    the viewer's eye lands on the CTA right as the narrator delivers it.
+    The overlay fades out with the scene clear, no manual cleanup needed.
     """
     accent = CATEGORY_ACCENT.get(category, PRIMARY)
 
-    label = Text("Watch the full breakdown", font_size=30, color=WHITE, weight="BOLD")
+    label = Text("WATCH FULL VIDEO", font_size=46, color=WHITE, weight="BOLD")
     arrow = Arrow(
-        start=[0, 0.5, 0], end=[0, -0.3, 0],
-        color=accent, stroke_width=8, max_tip_length_to_length_ratio=0.35,
+        start=[0, 0.7, 0], end=[0, -0.45, 0],
+        color=accent, stroke_width=14, max_tip_length_to_length_ratio=0.4,
     )
-    sub = Text("link in description", font_size=22, color=accent, weight="MEDIUM")
+    sub = Text("link in description", font_size=32, color=accent, weight="BOLD")
 
-    cta = VGroup(label, arrow, sub).arrange(DOWN, buff=0.25)
+    cta = VGroup(label, arrow, sub).arrange(DOWN, buff=0.30)
     try:
         frame = scene.camera.frame
-        cy = frame.get_bottom()[1] + 1.6
+        cy = frame.get_bottom()[1] + 1.9
         cta.move_to([0, cy, 0])
     except Exception:
         cta.to_edge(DOWN, buff=1.0)
     cta.set_z_index(50)
 
-    scene.play(FadeIn(label, shift=UP * 0.15), run_time=0.35)
+    scene.play(FadeIn(label, shift=UP * 0.2), run_time=0.40)
     scene.play(FadeIn(arrow), run_time=0.25)
     try:
-        # Quick pulse to draw the eye
-        scene.play(arrow.animate.scale(1.18), run_time=0.18)
-        scene.play(arrow.animate.scale(1 / 1.18), run_time=0.18)
+        # Bigger pulse to draw the eye
+        scene.play(arrow.animate.scale(1.25), run_time=0.20)
+        scene.play(arrow.animate.scale(1 / 1.25), run_time=0.20)
     except Exception:
         pass
     scene.play(FadeIn(sub), run_time=0.25)

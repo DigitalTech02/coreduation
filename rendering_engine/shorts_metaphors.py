@@ -47,12 +47,25 @@ logger = logging.getLogger(__name__)
 
 # Vertical position of all metaphors — top of the safe content area, well
 # above where the text card sits in shorts mode.
-_METAPHOR_CENTER_Y = 4.4
+_METAPHOR_CENTER_Y = 4.2
 
 # Scale applied to every built metaphor before placing on canvas.  Larger
 # values produce more dominant icons.  Tuned so even the simplest icon
 # (warning triangle) feels like a hero element, not decoration.
-_METAPHOR_SCALE = 1.55
+_METAPHOR_SCALE = 1.95
+
+# Color override per metaphor — the icon color tells a STORY independent
+# of category accent: danger=yellow, fail=red, secure=green, success=gold.
+# Otherwise (e.g.) a security-category render produces a red shield, which
+# reads as "broken" instead of "protected".
+_METAPHOR_COLOR: dict[str, str] = {
+    "warning":      "#ffd23f",   # yellow — danger
+    "broken_lock":  "#ff3b30",   # red — failure
+    "handshake":    "#3fdca1",   # green — secured
+    "shield":       "#3fdca1",   # green — protected
+    "swipe_arrow":  "#ffd23f",   # gold — call to action
+    "lightbulb":    "#ffd23f",   # yellow — insight
+}
 
 
 # ---------------------------------------------------------------------------
@@ -157,26 +170,32 @@ def _build_handshake(accent_color=GREEN) -> VGroup:
 
 
 def _build_shield_check(accent_color=GREEN) -> VGroup:
-    """Shield-shape with a checkmark — 'protected / verified'.
+    """Heraldic shield outline with a chunky checkmark — 'protected'.
 
-    Use case: payoff or summary scenes when the topic isn't a handshake.
+    Built from a Polygon so the silhouette is a real shield (rounded top,
+    point at the bottom) instead of a square stuck to a triangle.
     """
-    # Approximate shield: rounded square top + downward triangle bottom
-    top = RoundedRectangle(
-        width=1.7, height=1.3, corner_radius=0.18,
-        color=accent_color, stroke_width=8,
-        fill_color=accent_color, fill_opacity=0.20,
-    )
-    bottom = Triangle(color=accent_color, stroke_width=8)
-    bottom.set_fill(accent_color, opacity=0.20)
-    bottom.scale(0.85)
-    bottom.rotate(PI)  # point down
-    bottom.next_to(top, DOWN, buff=-0.55)
+    from manim import Polygon
 
-    check = Text("✓", font_size=110, color=accent_color, weight="BOLD")
-    check.move_to(top.get_center() + DOWN * 0.05)
+    # Shield silhouette: 8 points forming a rounded-top, pointed-bottom shape.
+    pts = [
+        [-1.0,  0.95, 0],   # top-left
+        [ 1.0,  0.95, 0],   # top-right
+        [ 1.0,  0.20, 0],   # right shoulder
+        [ 0.90, -0.40, 0],
+        [ 0.55, -0.95, 0],
+        [ 0.0,  -1.20, 0],  # bottom point
+        [-0.55, -0.95, 0],
+        [-0.90, -0.40, 0],
+        [-1.0,  0.20, 0],   # left shoulder
+    ]
+    shield = Polygon(*pts, color=accent_color, stroke_width=10)
+    shield.set_fill(accent_color, opacity=0.28)
 
-    return VGroup(top, bottom, check)
+    check = Text("✓", font_size=130, color=accent_color, weight="BOLD")
+    check.move_to(shield.get_center() + DOWN * 0.05)
+
+    return VGroup(shield, check)
 
 
 def _build_swipe_arrow(accent_color=GREEN) -> VGroup:
@@ -315,12 +334,15 @@ def render_shorts_metaphor(
         logger.debug("Unknown shorts metaphor: %s", metaphor_name)
         return None
 
-    accent = CATEGORY_ACCENT.get(category, PRIMARY)
+    # Use the metaphor-specific story color (yellow for warning, red for
+    # broken, green for protected, gold for CTA) instead of the category
+    # accent.  Otherwise a "security" category produces a red shield,
+    # which reads as "broken" not "protected".
+    color = _METAPHOR_COLOR.get(metaphor_name, CATEGORY_ACCENT.get(category, PRIMARY))
 
-    # Some builders take an accent color
-    if metaphor_name in ("handshake", "shield", "swipe_arrow"):
+    if metaphor_name in ("handshake", "shield", "swipe_arrow", "lightbulb"):
         try:
-            mob = builder(accent)
+            mob = builder(color)
         except TypeError:
             mob = builder()
     else:

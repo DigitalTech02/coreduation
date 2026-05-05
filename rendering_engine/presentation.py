@@ -269,24 +269,35 @@ def _avoid_collision(scene, state, group: VGroup, margin: float = 0.20) -> VGrou
     return _wrap_in_card(scene, group, opaque=True)
 
 
-def _wrap_in_card(scene, group: VGroup, *, opaque: bool) -> VGroup:
+def _wrap_in_card(
+    scene, group: VGroup, *, opaque: bool,
+    min_width: float | None = None,
+    min_height: float | None = None,
+) -> VGroup:
     """Wrap *group* in a rounded-rect card with isometric drop-shadow.
 
     ``opaque=True`` uses near-opaque fill so the card occludes anything
     behind it cleanly (used when the text was relocated or topology was
     hidden).  ``opaque=False`` is a subtle border-only treatment used
     when no overlap was detected.
+
+    ``min_width`` / ``min_height`` enforce a minimum card size — useful in
+    shorts mode where a one-line text block would otherwise produce a thin
+    card lost in the canvas.  When the natural card is smaller than the
+    minimum, the card grows but the inner content stays centered.
     """
     from manim import FadeIn, RoundedRectangle
 
     from rendering_engine.styles import make_isometric_shadow
 
     if opaque:
+        w = max(group.width + 0.55, min_width or 0.0)
+        h = max(group.height + 0.45, min_height or 0.0)
         card = RoundedRectangle(
-            width=group.width + 0.55,
-            height=group.height + 0.45,
-            corner_radius=0.12,
-            stroke_width=1.5,
+            width=w,
+            height=h,
+            corner_radius=0.18 if (min_width or min_height) else 0.12,
+            stroke_width=2.0 if (min_width or min_height) else 1.5,
             stroke_color=MUTED,
             stroke_opacity=0.55,
             fill_color=BG_COLOR,
@@ -361,11 +372,13 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
         # Long-form: route through collision-avoidance + card wrap.
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: shift below the metaphor (which lives at y≈+4.6) so both
-        # are visible.  Card sits in the middle 40% of the canvas; subtitle
-        # below it; metaphor above.
-        group.move_to([0, -1.0, 0])
-        group = _wrap_in_card(scene, group, opaque=True)
+        # Shorts: shift below the metaphor (which lives at y≈+4.2) so both
+        # are visible.  Min card size of 7.4 wide × 3.0 tall — single-line
+        # text would otherwise produce a thin card lost in the canvas.
+        group.move_to([0, -0.5, 0])
+        group = _wrap_in_card(
+            scene, group, opaque=True, min_width=7.4, min_height=3.0,
+        )
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
@@ -418,9 +431,11 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     if not is_shorts:
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: shift below the metaphor (y≈+4.6) — card centers around y≈-1.
-        group.move_to([0, -1.0, 0])
-        group = _wrap_in_card(scene, group, opaque=True)
+        # Shorts: shift below the metaphor (y≈+4.2) — card centers around y≈-0.5.
+        group.move_to([0, -0.5, 0])
+        group = _wrap_in_card(
+            scene, group, opaque=True, min_width=7.4, min_height=4.0,
+        )
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:
