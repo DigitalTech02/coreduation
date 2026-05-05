@@ -320,21 +320,22 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     parts = []
     title_mob = None
 
-    # Shorts mode: bigger, bolder text on a 9:16 canvas so the content
-    # actually fills the frame instead of floating like a postage stamp.
+    # Shorts mode: BIG, bold, dominant text on a 9:16 canvas so the content
+    # is the primary visual element, not a postage stamp.  TikTok / Reels /
+    # Shorts conventions use captions that span ~85% of the canvas width.
     is_shorts = getattr(state, "mode", "long") == "shorts"
-    title_size = int(TITLE_FONT_SIZE * 1.5) if is_shorts else TITLE_FONT_SIZE
-    body_size = int(BODY_FONT_SIZE * 1.4) if is_shorts else BODY_FONT_SIZE
-    body_max_width = 6.0 if is_shorts else 10.0
-    body_break_threshold = 60 if is_shorts else 100
+    title_size = int(TITLE_FONT_SIZE * 1.9) if is_shorts else TITLE_FONT_SIZE
+    body_size = int(BODY_FONT_SIZE * 1.7) if is_shorts else BODY_FONT_SIZE
+    body_max_width = 6.6 if is_shorts else 10.0
+    body_break_threshold = 50 if is_shorts else 100
 
     if action.title:
         title_mob = Text(
             action.title, font_size=title_size, color=PRIMARY, weight="BOLD",
         )
         # Title can't exceed canvas width either.  In shorts the safe width
-        # is ~6 units; horizontal it's ~12.
-        max_title_width = 6.4 if is_shorts else 12.0
+        # is ~6.8 units; horizontal it's ~12.
+        max_title_width = 6.8 if is_shorts else 12.0
         if title_mob.width > max_title_width:
             title_mob.set_width(max_title_width)
         parts.append(title_mob)
@@ -359,9 +360,10 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
         # Long-form: route through collision-avoidance + card wrap.
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: center on canvas.  No persistent topology to dodge,
-        # and the card chrome from _avoid_collision feels too small here.
-        group.move_to([0, 0, 0])
+        # Shorts: shift below the metaphor (which lives at y≈+4.6) so both
+        # are visible.  Card sits in the middle 40% of the canvas; subtitle
+        # below it; metaphor above.
+        group.move_to([0, -1.0, 0])
         group = _wrap_in_card(scene, group, opaque=True)
     state.register(f"text_{action.title or 'block'}", group)
 
@@ -383,7 +385,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
 
     # Shorts mode: bigger fonts so the bullet card fills the vertical canvas.
     is_shorts = getattr(state, "mode", "long") == "shorts"
-    bullet_title_size = int(SUBTITLE_FONT_SIZE * 1.5) if is_shorts else SUBTITLE_FONT_SIZE
+    bullet_title_size = int(SUBTITLE_FONT_SIZE * 1.8) if is_shorts else SUBTITLE_FONT_SIZE
 
     if action.title:
         title_mob = Text(
@@ -392,8 +394,8 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
         )
         parts.append(title_mob)
 
-    bullet_size = int(BODY_FONT_SIZE * 1.4) if is_shorts else BODY_FONT_SIZE
-    bullet_max_w = 6.0 if is_shorts else 10.0
+    bullet_size = int(BODY_FONT_SIZE * 1.65) if is_shorts else BODY_FONT_SIZE
+    bullet_max_w = 6.6 if is_shorts else 10.0
     bullets = []
     for item_text in action.items:
         bullet = Text(
@@ -415,8 +417,8 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     if not is_shorts:
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: center on canvas with an opaque card.
-        group.move_to([0, 0, 0])
+        # Shorts: shift below the metaphor (y≈+4.6) — card centers around y≈-1.
+        group.move_to([0, -1.0, 0])
         group = _wrap_in_card(scene, group, opaque=True)
     state.register(f"bullets_{action.title or 'list'}", group)
 

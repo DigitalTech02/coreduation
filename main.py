@@ -589,6 +589,7 @@ def run_shorts_pipeline(
         for s in script.scenes if s.audio_path
     ]
     scene_moods = [getattr(s, "music_mood", "") or "" for s in script.scenes if s.audio_path]
+    scene_voice_moods = [getattr(s, "voice_mood", "") or "" for s in script.scenes if s.audio_path]
     scene_pauses = [getattr(s, "pause_after", 0.0) or 0.0 for s in script.scenes if s.audio_path]
 
     combined_audio = str(shorts_dir / "narration.mp3")
@@ -597,12 +598,18 @@ def run_shorts_pipeline(
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            # Shorts force continuous music (a 40-second video can't be
+            # half-silent without feeling underbaked) and stamp every scene
+            # start with a mood-keyed kickoff SFX.
             build_narration_track_from_manifest(
                 scene_paths, scene_ids, manifest,
                 output_path=combined_audio,
                 scene_actions=scene_actions,
                 category=script.category,
                 scene_moods=scene_moods,
+                voice_moods=scene_voice_moods,
+                music_playback_mode="continuous",
+                shorts_kickoff_sfx=True,
             )
             used_manifest = True
         except Exception as e:

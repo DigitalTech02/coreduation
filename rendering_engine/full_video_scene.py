@@ -284,6 +284,26 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             except Exception as e:
                 logger.debug("Keyword burst skipped: %s", e)
 
+        # Shorts mode: render a per-scene visual metaphor BEFORE actions
+        # so the upper third of the canvas is filled before the narration
+        # starts.  Metaphor is auto-cleared by _clear_scene at scene end
+        # (registered as "presentation").
+        if is_shorts:
+            try:
+                from rendering_engine.shorts_metaphors import (
+                    pick_shorts_metaphor, render_shorts_metaphor,
+                )
+                meta_name = pick_shorts_metaphor(
+                    scene_index=i,
+                    total_scenes=len(scenes),
+                    voice_mood=sc.get("voice_mood") or "",
+                    category=category,
+                )
+                if meta_name:
+                    render_shorts_metaphor(scene, state, meta_name, category=category)
+            except Exception as e:
+                logger.debug("Shorts metaphor skipped for scene %d: %s", i, e)
+
         t0 = scene.renderer.time
 
         # Record the moment this scene's narration audio MUST start in the

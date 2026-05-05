@@ -58,6 +58,25 @@ SFX_MAP: dict[str, str] = {
     "flash_cut": "suspenseful_boom.mp3",
     "zoom_punch": "cinematic_impact_hit.mp3",
     "glitch_transition": "cinematic_impact_hit.mp3",
+    # Text reveals get a subtle pop — most beneficial in shorts where
+    # text cards are the primary visual event.  Long-form gets a gentle
+    # accent on every text reveal at -16 dB which is barely noticeable.
+    "show_text_block": "soft_pop.mp3",
+    "show_bullet_list": "click.mp3",
+}
+
+
+# Scene-kickoff SFX for shorts only — overlaid at each scene's video_start
+# regardless of action contents.  Gives every scene a punchy audio "stamp"
+# at the moment it begins, matching the user's TikTok/Reels expectation.
+_SHORTS_KICKOFF_SFX: dict[str, str] = {
+    "hook":       "suspenseful_boom.mp3",
+    "dramatic":   "cinematic_impact_hit.mp3",
+    "urgent":     "cinematic_impact_hit.mp3",
+    "excited":    "whoosh_cinematic.mp3",
+    "narrator":   "soft_pop.mp3",
+    "analytical": "soft_pop.mp3",
+    "calm":       "soft_pop.mp3",
 }
 
 
@@ -328,6 +347,10 @@ def build_narration_track_from_manifest(
     scene_actions: list[list[dict]] | None = None,
     category: str = "",
     scene_moods: list[str] | None = None,
+    voice_moods: list[str] | None = None,
+    music_playback_mode: str | None = None,
+    music_highlight_moods: str | None = None,
+    shorts_kickoff_sfx: bool = False,
 ) -> str:
     """Lay narration audio onto the timeline declared by the renderer manifest.
 
@@ -374,6 +397,7 @@ def build_narration_track_from_manifest(
     placed_audio_durations: list[float] = []
     placed_actions: list[list[dict]] = []
     placed_moods: list[str] = []
+    placed_voice_moods: list[str] = []
 
     for i, (sid, p) in enumerate(zip(scene_ids, scene_audio_paths)):
         m = scene_by_id.get(sid)
@@ -419,6 +443,7 @@ def build_narration_track_from_manifest(
         placed_audio_durations.append(len(seg) / 1000.0)
         placed_actions.append(scene_actions[i] if scene_actions and i < len(scene_actions) else [])
         placed_moods.append(scene_moods[i] if scene_moods and i < len(scene_moods) else "")
+        placed_voice_moods.append(voice_moods[i] if voice_moods and i < len(voice_moods) else "")
 
     if ENABLE_SFX and any(placed_actions):
         sfx_track = _build_sfx_track_from_manifest(
@@ -429,12 +454,26 @@ def build_narration_track_from_manifest(
             track = track.overlay(sfx_track, position=0)
             logger.info("Mixed SFX track into manifest-aligned narration")
 
+    # Shorts: stamp every scene start with a mood-keyed SFX (boom on hook,
+    # impact on tension, whoosh on excited/CTA, soft pop on narrator) so the
+    # short feels punchy from the first frame regardless of what actions
+    # the LLM emitted.
+    if ENABLE_SFX and shorts_kickoff_sfx and placed_voice_moods:
+        kickoff_track = _build_shorts_kickoff_track(
+            placed_voice_moods, placed_video_starts, total_ms, SFX_VOLUME_DB,
+        )
+        if kickoff_track is not None:
+            track = track.overlay(kickoff_track, position=0)
+            logger.info("Mixed shorts scene-kickoff SFX")
+
     if ENABLE_BACKGROUND_MUSIC and placed_video_starts:
         music_track = _build_music_track_from_manifest(
             total_ms, MUSIC_VOLUME_DB, category,
             scene_moods=placed_moods,
             video_starts=placed_video_starts,
             video_ends=placed_video_ends,
+            playback_mode_override=music_playback_mode,
+            highlight_moods_override=music_highlight_moods,
         )
         if music_track is not None:
             track = track.overlay(music_track)
@@ -473,6 +512,38 @@ def _build_sfx_track_from_manifest(
     return sfx_track if any_sfx else None
 
 
+def _build_shorts_kickoff_track(
+    voice_moods: list[str],
+    video_starts: list[float],
+    total_ms: int,
+    sfx_volume_db: float,
+) -> AudioSegment | None:
+    """Overlay a mood-keyed kickoff SFX at each shorts scene's video_start.
+
+    Slightly louder than per-action SFX (-12 dB instead of -16 dB) because
+    the kickoff IS the audio cue that says "new scene, look up".
+    """
+    track = AudioSegment.silent(total_ms)
+    any_overlaid = False
+    for mood, vstart in zip(voice_moods, video_starts):
+        sfx_name = _SHORTS_KICKOFF_SFX.get((mood or "").lower())
+        if not sfx_name:
+            continue
+        path = ASSETS_SFX_DIR / sfx_name
+        if not path.is_file():
+            continue
+        try:
+            sfx = AudioSegment.from_file(str(path)) + (sfx_volume_db + 4.0)
+        except Exception as e:
+            logger.debug("Could not load kickoff SFX %s: %s", path, e)
+            continue
+        pos = int(round(vstart * 1000))
+        if pos + len(sfx) <= total_ms:
+            track = track.overlay(sfx, position=pos)
+            any_overlaid = True
+    return track if any_overlaid else None
+
+
 def _build_music_track_from_manifest(
     total_ms: int,
     music_volume_db: float,
@@ -481,10 +552,15 @@ def _build_music_track_from_manifest(
     scene_moods: list[str],
     video_starts: list[float],
     video_ends: list[float],
+    playback_mode_override: str | None = None,
+    highlight_moods_override: str | None = None,
 ) -> AudioSegment | None:
     """Music bed that swaps mood at the actual visual scene boundaries.
 
-    Honors ``MUSIC_PLAYBACK_MODE`` from config:
+    Honors ``MUSIC_PLAYBACK_MODE`` from config (overridable via
+    ``playback_mode_override`` for callers who need different behavior than
+    the user's default — e.g. shorts force "continuous" so a 40-second
+    video isn't half-silent):
       * ``"selective"`` (default): music plays during intro card, outro card,
         and scenes whose mood is in ``MUSIC_HIGHLIGHT_MOODS`` only.  Most
         scenes are silent.  This is the user-preferred default
@@ -499,14 +575,15 @@ def _build_music_track_from_manifest(
         MUSIC_PLAYBACK_MODE,
     )
 
-    mode = (MUSIC_PLAYBACK_MODE or "selective").strip().lower()
+    mode = (playback_mode_override or MUSIC_PLAYBACK_MODE or "selective").strip().lower()
     if mode == "off":
         return None
     selective = mode == "selective"
 
+    highlight_source = highlight_moods_override or MUSIC_HIGHLIGHT_MOODS
     highlight_moods = {
         m.strip().lower()
-        for m in (MUSIC_HIGHLIGHT_MOODS or "").split(",")
+        for m in (highlight_source or "").split(",")
         if m.strip()
     }
 
