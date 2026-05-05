@@ -69,24 +69,27 @@ SFX_MAP: dict[str, str] = {
 # Scene-kickoff SFX for shorts only — overlaid at each scene's video_start
 # regardless of action contents.  Gives every scene a punchy audio "stamp"
 # at the moment it begins, matching the user's TikTok/Reels expectation.
-# Updated 2026-05-05: user wanted MORE boom/impact and at higher volume.
-# Replaced soft_pop on narrator/analytical with cinematic_impact_hit so
-# every scene starts with a punch, not a click.
+# Updated again 2026-05-05: user explicitly asked to USE IMPACT BOOM more
+# and crank the volume.  Every scene now uses an impact/boom sound; calm
+# scenes upgraded from soft_pop -> cinematic_impact_hit, excited scenes
+# from whoosh_cinematic -> cinematic_impact_hit (whoosh felt softer than
+# the user's "boom" expectation for the CTA reveal).
 _SHORTS_KICKOFF_SFX: dict[str, str] = {
     "hook":       "suspenseful_boom.mp3",
     "dramatic":   "suspenseful_boom.mp3",
     "urgent":     "cinematic_impact_hit.mp3",
-    "excited":    "whoosh_cinematic.mp3",
+    "excited":    "cinematic_impact_hit.mp3",
     "narrator":   "cinematic_impact_hit.mp3",
     "analytical": "cinematic_impact_hit.mp3",
-    "calm":       "soft_pop.mp3",
+    "calm":       "cinematic_impact_hit.mp3",
 }
 
 # How much louder than per-action SFX the shorts kickoffs play.  Each scene
 # kickoff IS the audio cue that says "new section, look up", so it must
-# punch through the music bed.  +10 dB above SFX baseline = -6 dB total
-# at the default SFX_VOLUME_DB=-16.
-_SHORTS_KICKOFF_BOOST_DB = 10.0
+# punch through the music bed.  Bumped 2026-05-05 from +10 to +14 dB after
+# user feedback — at default SFX_VOLUME_DB=-16, kickoffs now play at -2 dB
+# which is unmistakably loud.
+_SHORTS_KICKOFF_BOOST_DB = 14.0
 
 
 def _load_sfx(action_type: str) -> AudioSegment | None:
