@@ -871,31 +871,40 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     blob.set_z_index(-90)
     layers.append(blob)
 
-    layer_group = VGroup(*layers)
-    # Add immediately at FULL opacity — no FadeIn dance.  The previous
-    # set_opacity(0.0) + FadeIn(layer_group) sequence was a candidate
-    # cause of the panel rendering at 0% opacity (Manim's opacity
-    # multiplier on a nested VGroup of mixed mobjects can be unreliable).
-    # Removing that animation guarantees the panel is fully painted from
-    # the first frame of the scene.
-    scene.add(layer_group)
+    # Add each layer DIRECTLY to the scene — no VGroup wrapping.
+    # VGroup has a single z_index (default 0) that overrides child
+    # z_indices for scene-level sorting, which was almost certainly the
+    # cause of the panel rendering invisible despite z=-100 on the
+    # Rectangle.  Adding mobjects individually keeps each one's
+    # explicit z_index.
+    for mob in layers:
+        scene.add(mob)
 
-    state.objects["__shorts_glow"] = layer_group
+    # Keep the layer list in state so we can clear them all together.
+    state.objects["__shorts_glow"] = layers  # store the list, not a VGroup
     state._categories["__shorts_glow"] = "shorts_chrome"
 
 
 def _clear_shorts_glow(scene: Any, state: SceneState) -> None:
-    glow = state.objects.get("__shorts_glow")
-    if glow is None:
+    """Remove the per-scene background panel + decoration layers.
+
+    The panel layers are stored as a LIST (not a VGroup) per the
+    z-index propagation fix in _add_shorts_scene_glow.  Iterate and
+    remove each.  Skip the FadeOut animation — the next scene's
+    _add_shorts_scene_glow will paint a fresh panel that visually
+    "replaces" the old one anyway, and FadeOut on a list of disparate
+    mobjects can be unreliable.
+    """
+    layers = state.objects.get("__shorts_glow")
+    if layers is None:
         return
-    try:
-        scene.play(FadeOut(glow), run_time=0.25)
-    except Exception:
-        pass
-    try:
-        scene.remove(glow)
-    except Exception:
-        pass
+    if not isinstance(layers, list):
+        layers = [layers]
+    for mob in layers:
+        try:
+            scene.remove(mob)
+        except Exception:
+            pass
     state.objects.pop("__shorts_glow", None)
     state._categories.pop("__shorts_glow", None)
 
