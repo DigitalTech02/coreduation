@@ -153,7 +153,7 @@ ENABLE_VISION_QA=true python main.py --topic "Hash Maps" --category data-structu
 # Branding (intro card + outro CTA + corner watermark)
 ENABLE_BRANDING=true CHANNEL_NAME="CoreDuation" python main.py --topic "B-Tree Indexes" --category databases
 
-# AI-generated B-roll (DALL-E 3) — requires OPENAI_API_KEY
+# AI-generated B-roll — defaults to fal.ai FLUX schnell (~$0.003/image)
 ENABLE_AI_BROLL=true python main.py --topic "How CDNs Work" --category cloud-architecture
 
 # Real D3 charts (one-time setup: `playwright install chromium`)
@@ -177,6 +177,45 @@ MUSIC_PLAYBACK_MODE=off python main.py --topic "TLS Handshake"             # sil
 MUSIC_HIGHLIGHT_MOODS="tense,dramatic" python main.py --topic "TLS Handshake"  # also play music on big reveals
 MUSIC_VOLUME_DB=-40 python main.py --topic "TLS Handshake"                 # quieter
 MUSIC_INCLUDE_INTRO_OUTRO_BEDS=false python main.py --topic "TLS Handshake"  # silent intro/outro
+```
+
+### AI B-roll provider switching
+
+The recommended workflow is to set `BROLL_IMAGE_PROVIDER` and the corresponding API key in `.env`, then run the pipeline normally — no inline env vars needed.
+
+```bash
+# .env (recommended)
+ENABLE_AI_BROLL=true
+BROLL_IMAGE_PROVIDER=fal                # fal | openai | recraft | replicate
+FAL_KEY=<your-key>                      # required when provider=fal
+FAL_IMAGE_MODEL=fal-ai/flux/schnell     # ~$0.003/image, fastest
+```
+
+For one-off A/B testing without editing `.env`:
+
+```bash
+# Default — fal.ai FLUX schnell (cheapest)
+python main.py --topic "TLS Handshake" --category security --shorts-only
+
+# Recraft V3 (best vector / illustration style for the infographic look)
+BROLL_IMAGE_PROVIDER=recraft RECRAFT_API_TOKEN=<key> \
+  python main.py --topic "TLS Handshake" --category security --shorts-only
+
+# Replicate FLUX dev (higher quality, ~$0.025/image)
+BROLL_IMAGE_PROVIDER=replicate REPLICATE_API_TOKEN=<key> \
+  REPLICATE_IMAGE_MODEL=black-forest-labs/flux-dev \
+  python main.py --topic "TLS Handshake" --category security --shorts-only
+```
+
+Provider/model combos cache independently — switching providers regenerates fresh images, but switching back is free.
+
+### Shorts visual + audio tuning (env)
+
+```bash
+# Shorts default to continuous music at -18 dB and impact-boom kickoffs at -2 dB.
+# To tweak, override these in main.py:run_shorts_pipeline OR pass on the command line:
+SHORTS_TARGET_DURATION=45 python main.py --topic "TLS Handshake" --shorts-only
+SHORTS_EMIT_PLATFORM_COPIES=false python main.py --topic "TLS Handshake" --shorts-only
 ```
 
 ### Remotion chrome (Node-side setup)

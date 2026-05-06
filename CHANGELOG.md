@@ -1,5 +1,72 @@
 # CoreDuation — Changelog
 
+## v4.1 — Shorts polish + multi-provider AI B-roll (May 2026)
+
+Iterative polish on the shorts pipeline driven by user frame-by-frame
+review.  Each pass addressed specific visual or audio gaps the user
+flagged, plus a final round of AI image-generation provider options.
+
+### Shorts polish — visual
+
+| Pass | Theme | Key changes | Modules |
+|---|---|---|---|
+| 1 | Make it watchable | Auto-fill empty `show_text_block` from narration; vertical-mode font scaling (1.5×); subtitles lifted off phone UI bar; top category badge + progress bar; CTA overlay on last scene. | `shorts_orchestrator.py`, `rendering_engine/full_video_scene.py`, `rendering_engine/presentation.py`, `rendering_engine/subtitles.py` |
+| 2 | Visual metaphors | Six Manim-native icon primitives (warning, broken_lock, handshake, shield, swipe_arrow, lightbulb) auto-routed by scene index + voice_mood + category; per-scene injection of pattern-interrupt actions for kickoff energy. | `rendering_engine/shorts_metaphors.py` (new) |
+| 3 | Fix invisibility | Tagged metaphors with `category="presentation"` got wiped by `state.clear_presentation()` — moved to custom `"shorts_chrome"` category with manual cleanup at scene end.  Bumped fonts to 2.4×/2.0×.  Bigger category badge (38pt). | `rendering_engine/shorts_metaphors.py`, `rendering_engine/full_video_scene.py`, `rendering_engine/presentation.py` |
+| 4 | Bigger and bolder | Metaphor scale 1.55×→1.95×; story-driven metaphor colors (yellow=danger / red=fail / green=secure / gold=CTA) regardless of category accent; rebuilt shield as real Polygon silhouette; min card sizes (7.4×3.0 text, 7.4×4.0 bullets). | `rendering_engine/shorts_metaphors.py`, `rendering_engine/presentation.py` |
+| 5 | Full-bleed mood panels | Replaced "small card on dark canvas" with infographic-style colored panel that fills 95% of the canvas vertically — neon palette, three stacked gradient slabs at bottom, four diagonal light-ray streaks at 25°, top-right accent blob.  IDE-style traffic-light window chrome (red/yellow/green dots) on `show_code_block` in shorts mode. | `rendering_engine/full_video_scene.py`, `rendering_engine/presentation.py` |
+
+### Shorts polish — audio
+
+- Mood-keyed scene-kickoff SFX overlaid at every scene's `video_start_seconds` regardless of action contents: hook/dramatic → `suspenseful_boom`; everything else → `cinematic_impact_hit`.  No more soft_pop on narrator scenes — every scene punches in with an impact.
+- Kickoff volume `_SHORTS_KICKOFF_BOOST_DB`: 4 → 14 dB above SFX baseline.  Plays at -2 dB total at default `SFX_VOLUME_DB=-16` — clearly audible against music.
+- Background music for shorts: `music_volume_db_override=-18.0` (vs the global `-36`), `music_playback_mode="continuous"`.  Music is present, not wallpaper.
+- Long-form pipeline untouched (global `MUSIC_VOLUME_DB=-36`, no kickoff SFX).
+
+### Auto-injection of AI illustrations
+
+`shorts_orchestrator._inject_ai_illustrations` walks each scene after the LLM call and auto-prepends a `show_image` action with a derived prompt routed by scene_id keywords + voice_mood + narration content (hook → "alarming concept", attack/hack words → "broken padlock + red lightning", secure/encrypt words → "glowing green padlock + handshake", CTA → "smartphone with play button + finger tap"). All prompts share a base style block — *"vibrant flat cartoon illustration, neon accent colors, dark navy background, bold outlines, vector style, no text, clean infographic style, square 1:1"* — so the four illustrations in a single short look like the same artist drew them. Geometric metaphor steps aside when the scene has an AI illustration (avoid double visuals).
+
+### Multi-provider AI B-roll
+
+`broll_generator.py` gained four interchangeable providers behind `BROLL_IMAGE_PROVIDER`:
+
+| Provider | Model | $/image | Speed | Use case |
+|---|---|---|---|---|
+| **fal** *(default)* | `fal-ai/flux/schnell` | $0.003 | 2s | Cheapest; fast iteration |
+| openai *(universal fallback)* | `dall-e-3` | $0.04 | 10s | Best prompt adherence |
+| recraft | `recraftv3` | $0.04 | 5s | Best vector / illustration style |
+| replicate | `black-forest-labs/flux-schnell` | $0.003 | 3s | Largest model catalog |
+
+All non-OpenAI providers fall back to OpenAI DALL-E if their API key is missing or SDK isn't installed — pipeline never breaks because of provider unavailability. Cache key includes provider+model so switching producers naturally regenerates without colliding.
+
+New env vars (all with safe defaults; provider-specific keys empty):
+
+```bash
+BROLL_IMAGE_PROVIDER=fal
+FAL_KEY=                                 FAL_IMAGE_MODEL=fal-ai/flux/schnell
+RECRAFT_API_TOKEN=                       RECRAFT_IMAGE_MODEL=recraftv3
+                                         RECRAFT_STYLE=digital_illustration
+REPLICATE_API_TOKEN=                     REPLICATE_IMAGE_MODEL=black-forest-labs/flux-schnell
+BROLL_IMAGE_MODEL=dall-e-3               # OpenAI fallback model
+```
+
+Optional dependencies (pipeline runs without them — falls back to OpenAI):
+- `fal-client>=0.5.0`
+- `replicate>=1.0.4`
+- Recraft uses pure REST (no SDK)
+
+### Bug fixes during polish
+
+- `'EnrichedVideoScript' object has no attribute 'title'` — orchestrator was reading `.title`; the Pydantic field is `video_title` or `topic`. Use `getattr(s, "video_title", "") or s.topic`.
+- `repair_duplicate_ids(script.scenes)` was passing a list instead of the full script and ignoring the return; fixed to `script = repair_duplicate_ids(script)`.
+- LLM emitting empty action placeholders (`{"type": ""}` × 8) — added concrete JSON examples per action to `prompts/shorts.py:SHORTS_SYSTEM_PROMPT` so the LLM sees the exact field names. Also added defensive enrichment (`_enrich_empty_actions`) to fill empty title+body from narration.
+- Shorts metaphor invisible bug: cause was tagging with `category="presentation"`, which `state.clear_presentation()` wipes before every text/bullet action runs. Fixed with `"shorts_chrome"` custom category + manual cleanup.
+
+158 tests still pass throughout — none required updating since the shorts polish stayed within established APIs.
+
+---
+
 ## v4.0 — Reliability + Shorts (May 2026)
 
 Four numbered tracks shipped on `semantic-engine-v6` → `v9` over April–May 2026. Shifts the project from "polished single-deliverable pipeline" to "guaranteed-AV-synced multi-platform content engine." All work additive and gated by feature flags / CLI flags.

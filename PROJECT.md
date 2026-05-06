@@ -118,15 +118,16 @@ coreduation/
 │   ├── styles.py                  # Colors, fonts, sizes, timings, paddings + make_isometric_shadow
 │   ├── topology.py / topology_3d.py
 │   ├── packets.py / sequence.py / data_display.py / cloud.py / charts.py
-│   ├── presentation.py            # Text blocks, bullet lists, code, comparisons (with `_avoid_collision`)
+│   ├── presentation.py            # Text blocks, bullet lists, code (IDE-window chrome in shorts), comparisons
 │   ├── subtitles.py               # Whisper-aligned scheduled subtitles + chunked fallback
 │   ├── branding.py                # Intro / outro / watermark / credit label
 │   ├── themes.py                  # Per-category palettes + animated gradient + drifting particle field
 │   ├── ambient.py                 # Margin-zone drifting decor shapes
+│   ├── shorts_metaphors.py        # 6 vertical-canvas icon primitives (warning, broken_lock, handshake, shield, swipe_arrow, lightbulb) + router
 │   ├── keyword_overlay.py         # Background watermark word — DISABLED (competes with content)
 │   ├── effects.py                 # Pattern-interrupt cuts (flash_cut / zoom_punch / glitch_transition)
 │   ├── easing.py                  # Cubic / back / anticipation easing
-│   ├── broll.py                   # DALL-E + Ken Burns
+│   ├── broll.py                   # AI-broll Ken-Burns renderer (provider-agnostic)
 │   └── retention.py               # Beat-injection renderers
 │
 ├── tests/                         # 158 pytest tests (Track 7 baseline)
@@ -190,6 +191,21 @@ Applied automatically across every video:
 - **Glow halos** on highlighted nodes
 - **Per-category accent colors** on title cards
 - **Whisper-aligned subtitles** — bold lower-third text, fade-in/out per chunk, anchored to actual spoken-word timestamps
+
+### Shorts-specific visual stack (vertical 9:16)
+
+When `data["mode"] == "shorts"` the renderer applies a different visual model designed for phone playback:
+
+- **Full-bleed mood panels** — a big rounded panel fills 95% of the canvas vertically in a vivid mood-keyed color (red=danger, orange=tension, blue=narration, gold=CTA). Replaces the long-form "small card on dark canvas" pattern.
+- **Diagonal light-ray streaks** — 4 lines at 25° behind the panel for energy.
+- **Visual metaphors** — 6 Manim-native icons (warning ⚠️, broken_lock 🔓, handshake 🤝, shield ✅, swipe_arrow ↗️, lightbulb 💡) auto-routed by scene index + voice_mood + category. Story-driven colors independent of category accent.
+- **AI illustrations** — when `ENABLE_AI_BROLL=true`, a per-scene DALL-E/FLUX/Recraft image is auto-injected with a mood-routed prompt, plays as a 1.4–2.2s Ken Burns reveal. Geometric metaphor steps aside when AI illustration is present.
+- **IDE-style code window chrome** — `show_code_block` in shorts gets traffic-light dots (red/yellow/green) on a dark window background.
+- **Top category badge + progress bar** — anchored to the camera frame top via updaters.
+- **CTA overlay on last scene** — "WATCH FULL VIDEO ↓ link in description" with a chunky pulsing arrow.
+- **Lifted subtitles** — 1.95× font, positioned in the lower-third (above the phone UI safe area).
+- **Loud scene-kickoff SFX** — mood-keyed boom/impact at the start of every scene at -2 dB.
+- **Continuous background music** at -18 dB (vs -36 for long-form).
 
 ## CLI Usage
 
@@ -291,6 +307,16 @@ output/<YYYYMMDD_HHMMSS>_semantic_<slug>/
 | `ENABLE_SHORTS` | `False` | Opt-in via `--shorts` / `--shorts-only` |
 | `SHORTS_TARGET_DURATION` | `50.0` | Seconds — capped at 60 for cross-platform safety |
 | `SHORTS_EMIT_PLATFORM_COPIES` | `True` | Emit `youtube_short.mp4` / `instagram_reel.mp4` / `tiktok.mp4` |
+| `ENABLE_AI_BROLL` | `False` | Generate per-scene AI illustrations (auto-injected for shorts) |
+| `BROLL_IMAGE_PROVIDER` | `fal` | `fal` / `openai` / `recraft` / `replicate` |
+| `FAL_IMAGE_MODEL` | `fal-ai/flux/schnell` | Default fal model (~$0.003/image) |
+| `FAL_KEY` | empty | fal.ai API key |
+| `RECRAFT_IMAGE_MODEL` | `recraftv3` | Recraft model (best vector / illustration style) |
+| `RECRAFT_STYLE` | `digital_illustration` | Recraft style preset |
+| `RECRAFT_API_TOKEN` | empty | Recraft API key |
+| `REPLICATE_IMAGE_MODEL` | `black-forest-labs/flux-schnell` | Replicate model id |
+| `REPLICATE_API_TOKEN` | empty | Replicate API key |
+| `BROLL_IMAGE_MODEL` | `dall-e-3` | OpenAI fallback model |
 
 See `.env.example` for the full list.
 

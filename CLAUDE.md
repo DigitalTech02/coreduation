@@ -29,15 +29,55 @@ python main.py --topic "TLS Handshake" --category security --shorts-only     # s
 8. **Audio mux** — `semantic_audio.build_narration_track_from_manifest()` overlays each scene's TTS mp3 at exactly its `video_start_seconds` from the manifest. Total length matches the silent video by construction; no `_pad_audio_to_video` band-aid needed. SFX positioned at `video_start + (action_idx/n_actions) * audio_duration`. Music in selective mode (default) plays only during intro/outro stings + scenes whose `music_mood` is in `MUSIC_HIGHLIGHT_MOODS` (default: `tense`); volume default `-36 dB`. Falls back to legacy cumulative-estimate `build_semantic_narration_track()` only if the manifest is missing.
 9. **Post** — `frame_validator` (deterministic per-scene frame sampling), `auto_fix` (retry loop for QA failures), `vision_qa` (GPT-4o frame sampling), `chrome_compositor` (Remotion intro/outro — **disabled by default**, since Manim already renders intro+title+outro inside `final_semantic.mp4`), `thumbnail_generator`, `youtube_upload_export` (copies output into `Youtube_Upload/videos/` for the standalone uploader), `dubs.generate_language_dubs`, `youtube_uploader`.
 
-## Shorts pipeline (Track 7)
+## Shorts pipeline (Track 7 + v4.1 polish)
 
 A parallel pipeline produces 50-second vertical 9:16 videos for YouTube Shorts / Instagram Reels / TikTok using the **same** audio mux, manifest, subtitle scheduler, and theme system. Differences:
 
-- `shorts_orchestrator.generate_shorts_script()` — single LLM call distills the topic into a 4-scene viral script (hook → tension → payoff → CTA) using `prompts/shorts.py:SHORTS_SYSTEM_PROMPT`. Hard-strips actions outside `VERTICAL_ACTION_WHITELIST` (no topology, no comparisons, no charts — anything assuming horizontal width).
+- `shorts_orchestrator.generate_shorts_script()` — single LLM call distills the topic into a 4-scene viral script (hook → tension → payoff → CTA) using `prompts/shorts.py:SHORTS_SYSTEM_PROMPT`. Hard-strips actions outside `VERTICAL_ACTION_WHITELIST` (no topology, no comparisons, no charts — anything assuming horizontal width). Two post-LLM enrichment passes: `_enrich_empty_actions` fills empty `show_text_block.title/body` from narration; `_inject_ai_illustrations` prepends a `show_image` action per scene when `ENABLE_AI_BROLL=true`.
 - `rendering_engine/shorts_runner.py` — Manim Scene that reshapes `manim.config.frame_width=8.0` and `frame_height=14.222` at module load, before `MovingCameraScene` instantiates.
 - `rendering_engine/engine.render_shorts_video()` — passes `-r 1080,1920 --fps 30` to Manim CLI.
-- `data["mode"] = "shorts"` is read by `run_full_video_construct` to skip intro card, title card, outro card, persistent topic header, credit label, and corner decorations (would burn ~9s of the 50s budget).
+- `data["mode"] = "shorts"` is read by `run_full_video_construct` to skip intro card, title card, outro card, persistent topic header, credit label, and corner decorations (would burn ~9s of the 50s budget). `SceneState.mode = "shorts"` flows through to renderers so they scale fonts up and reposition content.
 - Output: `output/<run>/shorts/short.mp4` plus identical platform-named copies (`youtube_short.mp4`, `instagram_reel.mp4`, `tiktok.mp4`) when `SHORTS_EMIT_PLATFORM_COPIES=true`.
+
+### Shorts visual stack (per scene, back to front)
+
+| z-index | Layer | Source |
+|---|---|---|
+| -100 | Themed gradient | `themes.apply_themed_background` |
+| -90 | Drifting particle field | `themes._add_particle_field` |
+| -51 | 4 diagonal light-ray streaks at 25° | `_add_shorts_scene_glow` |
+| -50 | Big rounded mood panel (7.6 × 10.5 units, 0.55 opacity) | `_add_shorts_scene_glow` |
+| -49 | 3 stacked gradient slabs at panel bottom in deeper mood color | `_add_shorts_scene_glow` |
+| -48 | Top-right accent corner blob | `_add_shorts_scene_glow` |
+| -5 | AI illustration (Ken Burns, 1.4–2.2s) when `ENABLE_AI_BROLL=true` | `rendering_engine/broll.py` |
+| 0 | Text/bullet content forced to white (no dark card chrome) | `presentation.render_show_text_block`, `render_show_bullet_list` |
+| 20 | Geometric metaphor (warning/broken_lock/handshake/shield/swipe_arrow/lightbulb) — **skipped when AI illustration is present** | `rendering_engine/shorts_metaphors.py` |
+| 38 | Progress bar | `_add_shorts_progress_bar` |
+| 40 | Big category badge pill ("🔒 SECURITY", 38pt bold) | `_add_shorts_category_badge` |
+| 50 | CTA overlay ("WATCH FULL VIDEO ↓ link in description") on last scene | `_play_shorts_cta_overlay` |
+| 60 | Whisper-aligned subtitle (1.95× font, lifted to lower-third off phone UI) | `subtitles.schedule_subtitles_for_scene` |
+
+Mood-keyed colors keyed on `voice_mood`: hook = neon red, dramatic/urgent = vivid orange, narrator/analytical/calm = bright blue, excited (CTA) = neon gold. The icon's color is independent — story-driven (yellow=danger, red=fail, green=secure, gold=CTA) regardless of category.
+
+### Shorts audio stack
+
+- TTS narration (placed at scene's `video_start_seconds` from manifest)
+- Per-action SFX from `SFX_MAP` (`soft_pop` on text reveal, `whoosh_cinematic` on scene transition, etc.)
+- **Scene-kickoff SFX** at `video_start_seconds` — mood-keyed: `suspenseful_boom` for hook/dramatic, `cinematic_impact_hit` for everything else. Volume `SFX_VOLUME_DB + 14 dB = -2 dB` (much louder than per-action SFX).
+- **Continuous background music** at `-18 dB` (vs the long-form's `-36 dB`).
+
+### Multi-provider AI B-roll
+
+`broll_generator.py` exposes 4 providers via `BROLL_IMAGE_PROVIDER`. All non-OpenAI providers fall back to OpenAI DALL-E if their API key/SDK is missing.
+
+| Provider | Default model | $/image |
+|---|---|---|
+| `fal` *(default)* | `fal-ai/flux/schnell` | $0.003 |
+| `openai` *(universal fallback)* | `dall-e-3` | $0.04 |
+| `recraft` | `recraftv3` (style: `digital_illustration`) | $0.04 |
+| `replicate` | `black-forest-labs/flux-schnell` | $0.003 |
+
+Cache key is `(prompt, provider_model_id)` — switching providers regenerates cleanly. Auto-injected prompts share a style block (*"vibrant flat cartoon illustration, neon accent colors, dark navy background, bold outlines, vector style, no text, square 1:1"*) so the four illustrations in a single short look unified.
 
 Output lands in `output/<YYYYMMDD_HHMMSS>_semantic_<slug>/`.
 
