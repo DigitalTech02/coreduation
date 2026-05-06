@@ -512,15 +512,17 @@ def _subtitle_y(scene: Any, offset_from_bottom: float) -> float:
     so a positive value places the subtitle above the bottom edge.
 
     On vertical (9:16) shorts the bottom of the frame is hidden behind the
-    platform UI (TikTok caption row, IG button bar, YouTube Shorts comments).
-    Detect a tall canvas and lift the subtitle higher (~3 units up) so it
-    sits comfortably in the lower-third instead of the literal bottom edge.
+    platform UI: TikTok's caption + account row eats the bottom ~20% of the
+    canvas (~2.85 units of a 14.222-tall frame), Instagram's progress dots +
+    user info similar, YouTube Shorts comments + subscribe overlay similar.
+    Detect a tall canvas and lift the subtitle to >=3.7 units up — this
+    clears the death zone with ~0.85 units of buffer.
     """
     try:
         frame = scene.camera.frame
         is_vertical = frame.height > frame.width
         if is_vertical:
-            offset_from_bottom = max(offset_from_bottom, 3.2)
+            offset_from_bottom = max(offset_from_bottom, 3.7)
         return frame.get_bottom()[1] + offset_from_bottom
     except Exception:
         from rendering_engine.styles import SUBTITLE_Y_OFFSET

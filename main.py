@@ -598,12 +598,12 @@ def run_shorts_pipeline(
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            # Shorts force continuous music (a 40-second video can't be
-            # half-silent without feeling underbaked) and stamp every scene
-            # start with a mood-keyed kickoff SFX.  Music bumped to -18 dB
-            # (vs the global -36) per user feedback — phones in noisy
-            # environments need the bed audibly present, not background
-            # wallpaper.
+            # Marketing-pillar brief: SELECTIVE music (not continuous) at
+            # -18 dB.  Music plays only during scenes whose music_mood is
+            # in MUSIC_HIGHLIGHT_MOODS (default: "tense") — typically the
+            # hook scene.  This creates a psychological "itch" that the
+            # silent payoff scene scratches.  Loud kickoffs on every
+            # scene still provide audio energy throughout.
             build_narration_track_from_manifest(
                 scene_paths, scene_ids, manifest,
                 output_path=combined_audio,
@@ -611,7 +611,7 @@ def run_shorts_pipeline(
                 category=script.category,
                 scene_moods=scene_moods,
                 voice_moods=scene_voice_moods,
-                music_playback_mode="continuous",
+                music_playback_mode="selective",
                 music_volume_db_override=-18.0,
                 shorts_kickoff_sfx=True,
             )

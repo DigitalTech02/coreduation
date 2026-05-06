@@ -291,8 +291,14 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         # ``state.clear_presentation`` call that fires when text/bullet
         # actions render.  Cleared explicitly at scene end below.
         if is_shorts:
+            # Director's brief: CTA scene (last scene) MUST always be gold,
+            # regardless of voice_mood the LLM emitted.  Maximizes the
+            # conversion impulse on the link-tap moment.
+            effective_mood = sc.get("voice_mood") or ""
+            if i == len(scenes) - 1:
+                effective_mood = "excited"  # → gold panel via _SHORTS_MOOD_GLOW
             try:
-                _add_shorts_scene_glow(scene, state, sc.get("voice_mood") or "")
+                _add_shorts_scene_glow(scene, state, effective_mood)
             except Exception as e:
                 logger.debug("Shorts glow skipped for scene %d: %s", i, e)
 
@@ -358,10 +364,15 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
                 continue
             _dispatch_action(scene, state, action)
 
-        # Last scene of a short: animated "Watch full →" CTA overlay.
-        # Plays immediately after the scene's actions so it's visible during
-        # the narration's CTA line, not crammed into the trailing fade.
+        # Last scene of a short: fade out the text card / bullet list FIRST
+        # (per the marketing-pillar brief: the CTA arrow must be the only
+        # thing on screen at the end to maximize click-through), then play
+        # the animated "Watch full →" CTA overlay on the gold panel.
         if is_shorts and i == len(scenes) - 1:
+            try:
+                state.clear_presentation(scene)
+            except Exception:
+                pass
             try:
                 _play_shorts_cta_overlay(scene, category)
             except Exception as e:

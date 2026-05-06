@@ -190,6 +190,59 @@ def _derive_image_prompt(
     return f"{subject}, {_AI_BROLL_BASE_STYLE}"
 
 
+def _inject_pattern_interrupts(data: dict) -> dict:
+    """Force-inject pattern-interrupt actions on key scene positions.
+
+    Director's brief from the user:
+      Scene 1 (hook):    MUST start with zoom_punch  (stops the scroll)
+      Scene 3 (payoff):  MUST start with flash_cut   (marks the reveal)
+
+    Both are visible AND audible — SFX_MAP ties zoom_punch to
+    cinematic_impact_hit and flash_cut to suspenseful_boom.  If the LLM
+    already emitted them, this is a no-op.
+    """
+    scenes = data.get("scenes") or []
+    if not scenes:
+        return data
+
+    def _has_action_type(scene: dict, atype: str) -> bool:
+        return any(
+            (a or {}).get("type") == atype
+            for a in scene.get("actions") or []
+        )
+
+    # Scene 1 — hook: zoom_punch
+    if len(scenes) >= 1:
+        s1 = scenes[0]
+        if not _has_action_type(s1, "zoom_punch"):
+            actions = list(s1.get("actions") or [])
+            actions.insert(0, {
+                "type": "zoom_punch",
+                "duration": 0.30,
+                "scale": 1.18,
+            })
+            s1["actions"] = actions
+            logger.info("Injected zoom_punch at start of hook scene '%s'",
+                        s1.get("scene_id", "?"))
+
+    # Scene 3 — payoff: flash_cut (only when there are >= 3 scenes;
+    # otherwise the structure isn't hook → tension → payoff → cta).
+    if len(scenes) >= 3:
+        s3 = scenes[2]
+        if not _has_action_type(s3, "flash_cut"):
+            actions = list(s3.get("actions") or [])
+            actions.insert(0, {
+                "type": "flash_cut",
+                "color": "white",
+                "duration": 0.18,
+            })
+            s3["actions"] = actions
+            logger.info("Injected flash_cut at start of payoff scene '%s'",
+                        s3.get("scene_id", "?"))
+
+    return data
+
+
 def _enrich_empty_actions(data: dict) -> dict:
     """Repair empty action content so shorts never render a blank canvas.
 
@@ -332,6 +385,7 @@ def generate_shorts_script(
                 cached = _filter_to_vertical_actions(cached)
                 cached = _truncate_scenes(cached)
                 cached = _enrich_empty_actions(cached)
+                cached = _inject_pattern_interrupts(cached)
                 cached = _inject_ai_illustrations(cached, topic)
                 llm_script = SemanticVideoScript.model_validate(cached)
             except Exception as e:
@@ -360,6 +414,7 @@ def generate_shorts_script(
             raw_dict = _filter_to_vertical_actions(raw_dict)
             raw_dict = _truncate_scenes(raw_dict)
             raw_dict = _enrich_empty_actions(raw_dict)
+            raw_dict = _inject_pattern_interrupts(raw_dict)
             raw_dict = _inject_ai_illustrations(raw_dict, topic)
             llm_script = SemanticVideoScript.model_validate(raw_dict)
         except Exception as e:

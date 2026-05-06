@@ -331,14 +331,15 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     parts = []
     title_mob = None
 
-    # Shorts mode: BIG, bold, dominant text on a 9:16 canvas so the content
-    # is the primary visual element, not a postage stamp.  TikTok / Reels /
-    # Shorts conventions use captions that span ~90% of the canvas width
-    # at chunky font sizes (~70-90px equivalent on 1080×1920).
+    # Shorts mode: BIG, bold, dominant text on a 9:16 canvas — but kept
+    # narrow enough to clear the right-side button column (Like / Comment /
+    # Share) that platform UIs overlay on the right ~10% of the canvas.
+    # Max width tightened from 7.2 → 6.6 units (was overlapping the right
+    # safe-zone).
     is_shorts = getattr(state, "mode", "long") == "shorts"
     title_size = int(TITLE_FONT_SIZE * 2.4) if is_shorts else TITLE_FONT_SIZE
     body_size = int(BODY_FONT_SIZE * 2.0) if is_shorts else BODY_FONT_SIZE
-    body_max_width = 7.2 if is_shorts else 10.0
+    body_max_width = 6.6 if is_shorts else 10.0
     body_break_threshold = 40 if is_shorts else 100
 
     if action.title:
@@ -346,8 +347,9 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
             action.title, font_size=title_size, color=PRIMARY, weight="BOLD",
         )
         # Title can't exceed canvas width either.  In shorts the safe width
-        # is ~7.2 units; horizontal it's ~12.
-        max_title_width = 7.2 if is_shorts else 12.0
+        # is ~6.6 units (leaves a 0.7-unit buffer on each side for the
+        # platform UI button columns); horizontal long-form is ~12.
+        max_title_width = 6.6 if is_shorts else 12.0
         if title_mob.width > max_title_width:
             title_mob.set_width(max_title_width)
         parts.append(title_mob)
@@ -414,7 +416,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
         parts.append(title_mob)
 
     bullet_size = int(BODY_FONT_SIZE * 1.9) if is_shorts else BODY_FONT_SIZE
-    bullet_max_w = 7.2 if is_shorts else 10.0
+    bullet_max_w = 6.6 if is_shorts else 10.0
     bullets = []
     for item_text in action.items:
         bullet = Text(
