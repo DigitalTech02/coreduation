@@ -680,6 +680,15 @@ def _serialize_script(script: EnrichedVideoScript) -> dict:
                 # exact subtitle-to-narration alignment.
                 "pause_after": s.pause_after or 0.0,
                 "whisper_words": list(getattr(s, "whisper_words", None) or []),
+                # Voice/music mood — read by the shorts pipeline's
+                # _add_shorts_scene_glow + warning_pulse + success_stamp
+                # triggers.  Was the missing piece: without these in the
+                # data dict, the Manim subprocess saw voice_mood='' for
+                # every scene and the per-scene mood panel never painted
+                # except on the last (CTA) scene where the mood is
+                # forced to "excited".
+                "voice_mood": getattr(s, "voice_mood", "") or "",
+                "music_mood": getattr(s, "music_mood", "") or "",
             }
             for s in script.scenes
         ],
