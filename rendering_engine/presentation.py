@@ -97,18 +97,28 @@ def _word_wrap_for_shorts(text: str, max_chars_per_line: int = 18) -> str:
 _anim_cycle_counter = 0
 
 
-def _next_title_anim(mob):
-    """Cycle through varied entrance animations for titles.
+def _next_title_anim(mob, shorts_mode: bool = False):
+    """Cycle through varied entrance animations for titles, spring-eased.
 
-    Uses spring-physics easing (Framer Motion / iOS feel) — every entrance
-    overshoots slightly then settles, making cards feel "alive" vs the
-    flat linear arrival of cubic_ease_out.  Applies to both long-form
-    and shorts pipelines.
+    In shorts mode, EVERY entrance uses spring physics (no Write variant
+    which has linear motion).  A short-form viewer scrolls past in
+    seconds — they don't get the benefit of cycle variety, so we make
+    the bouncy arrival the default for max visible energy.
     """
     from rendering_engine.easing import spring_out
     global _anim_cycle_counter
     _anim_cycle_counter += 1
     choice = _anim_cycle_counter % 4
+
+    if shorts_mode:
+        # Force spring on every entrance — no Write (linear) variant.
+        if choice in (0, 1):
+            return GrowFromCenter(mob, run_time=0.70, rate_func=spring_out)
+        elif choice == 2:
+            return FadeIn(mob, shift=DOWN * 0.4, run_time=0.65, rate_func=spring_out)
+        else:
+            return FadeIn(mob, shift=UP * 0.4, run_time=0.65, rate_func=spring_out)
+
     if choice == 0:
         return Write(mob, run_time=0.7)
     elif choice == 1:
@@ -446,11 +456,30 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
-        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        scene.play(_next_title_anim(title_mob, shorts_mode=is_shorts), run_time=0.6)
         _post_title_flourish(scene, title_mob)
-        scene.play(FadeIn(parts[1], shift=UP * 0.15), run_time=0.5)
+        scene.play(FadeIn(parts[1], shift=UP * 0.15, rate_func=_spring_or_smooth(is_shorts)), run_time=0.5)
     else:
-        scene.play(_next_title_anim(parts[0]), run_time=0.6)
+        scene.play(_next_title_anim(parts[0], shorts_mode=is_shorts), run_time=0.6)
+
+    # Shorts: glow halo around the title to give it a "highlighted" feel
+    # right after entrance.  Cross-cutting polish from the Phase 2 brief
+    # — long-form gets it via emphasize_text only; shorts gets it on
+    # every show_text_block title for max visible energy.
+    if is_shorts and title_mob is not None:
+        try:
+            from rendering_engine.micro_animations import play_glow_pulse
+            play_glow_pulse(scene, title_mob, color=ACCENT, duration=0.6)
+        except Exception:
+            pass
+
+
+def _spring_or_smooth(is_shorts: bool):
+    """Pick spring for shorts, default smooth for long-form."""
+    if is_shorts:
+        from rendering_engine.easing import spring_out
+        return spring_out
+    return None  # let Manim use its default
 
 
 # ---------------------------------------------------------------------------
@@ -513,8 +542,14 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:
-        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        scene.play(_next_title_anim(title_mob, shorts_mode=is_shorts), run_time=0.6)
         _post_title_flourish(scene, title_mob)
+        if is_shorts:
+            try:
+                from rendering_engine.micro_animations import play_glow_pulse
+                play_glow_pulse(scene, title_mob, color=ACCENT, duration=0.55)
+            except Exception:
+                pass
 
     if action.progressive:
         for i, bullet in enumerate(bullets):

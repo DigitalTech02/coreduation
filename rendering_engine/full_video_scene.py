@@ -383,46 +383,59 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             _dispatch_action(scene, state, action)
 
         # Phase 1 trigger: confetti burst on scenes that read as a "reward
-        # / payoff / final takeaway" beat.  Cross-cutting: hits long-form
-        # final-takeaway scenes too, not just shorts CTA.  Routed by
-        # voice_mood + scene_id keyword match.
+        # / payoff / final takeaway" beat.  In shorts, FORCE on the last
+        # scene (CTA) regardless of voice_mood — guaranteed conversion
+        # reward beat.  Long-form still uses keyword matching.
         try:
             from rendering_engine.confetti import play_confetti_burst, should_celebrate
-            if should_celebrate(
+            should_fire_confetti = should_celebrate(
                 voice_mood=sc.get("voice_mood") or "",
                 scene_id=sc.get("scene_id") or "",
                 narration=narration,
-            ):
-                # Slightly different confetti origin in shorts (mid-canvas)
-                # vs long-form (above the title card).
+            )
+            # Force on shorts last scene (CTA)
+            if is_shorts and i == len(scenes) - 1:
+                should_fire_confetti = True
+
+            if should_fire_confetti:
                 origin = (0.0, 1.5) if is_shorts else (0.0, 2.0)
                 play_confetti_burst(
                     scene,
                     origin=origin,
-                    count=52 if is_shorts else 38,
+                    count=60 if is_shorts else 38,
                     spread_x=4.5 if is_shorts else 6.5,
                     duration=1.4,
                 )
         except Exception as e:
             logger.debug("Confetti burst skipped: %s", e)
 
-        # Phase 2 trigger: success stamp for "secured / verified" payoff
-        # scenes.  Plays AFTER content but before the post-action wait so
-        # it lands on the climax beat.
+        # Phase 2 trigger: success stamp.  In shorts, FORCE on the payoff
+        # scene (3rd of 4) regardless of LLM keywords — every short gets
+        # a guaranteed ✓ moment on its main reveal.  Long-form still
+        # uses keyword matching.
         try:
             sid_lower = (sc.get("scene_id") or "").lower()
             narration_lower = (narration or "").lower()
-            if any(k in sid_lower for k in ("secured", "verified", "protected", "safe", "done")) \
-               or any(k in narration_lower for k in (
-                   "now you're safe", "your data is protected", "fully encrypted",
-                   "successfully verified",
-               )):
+            keyword_match = (
+                any(k in sid_lower for k in (
+                    "secured", "verified", "protected", "safe", "done",
+                    "payoff", "reveal", "twist",
+                ))
+                or any(k in narration_lower for k in (
+                    "now you're safe", "your data is protected", "fully encrypted",
+                    "successfully verified",
+                ))
+            )
+            shorts_payoff_scene = (
+                is_shorts and len(scenes) >= 4 and i == len(scenes) - 2
+            )
+            if keyword_match or shorts_payoff_scene:
                 from rendering_engine.micro_animations import play_success_stamp
                 play_success_stamp(
                     scene,
-                    position=(0.0, 1.0 if is_shorts else 0.0),
-                    scale=1.2 if is_shorts else 0.8,
-                    duration=0.95,
+                    position=(0.0, 3.5 if is_shorts else 0.0),  # upper area in shorts to avoid card
+                    scale=1.4 if is_shorts else 0.8,
+                    duration=1.0,
                 )
         except Exception as e:
             logger.debug("Success stamp skipped: %s", e)
