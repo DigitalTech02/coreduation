@@ -853,10 +853,38 @@ def render_shorts_video(
     finally:
         Path(json_path).unlink(missing_ok=True)
 
+    # Always write the subprocess output to a debug log next to the silent
+    # video.  Lets us inspect warnings/diagnostics from inside the Manim
+    # subprocess (e.g. _add_shorts_scene_glow's panel diagnostics) since
+    # capture_output=True traps them.  Critical render-time issues like
+    # "panel function never executed" only show up here.
+    try:
+        debug_log = dest_dir / "manim_render.log"
+        debug_log.parent.mkdir(parents=True, exist_ok=True)
+        full_out = "\n".join([
+            "=== STDOUT ===",
+            result.stdout or "(empty)",
+            "",
+            "=== STDERR ===",
+            result.stderr or "(empty)",
+        ])
+        debug_log.write_text(full_out, encoding="utf-8")
+        logger.info("Shorts subprocess log: %s", debug_log)
+    except Exception as e:
+        logger.debug("Could not write shorts subprocess log: %s", e)
+
     if result.returncode != 0:
         err = (result.stderr or "") + (result.stdout or "")
         logger.error("Shorts render failed:\n%s", err[-6000:])
         return None
+
+    # Also surface any "Shorts panel:" diagnostic warnings to the parent
+    # logger so they appear in the user's console without hunting through
+    # the manim_render.log file.
+    if result.stderr:
+        for line in result.stderr.splitlines():
+            if "Shorts panel" in line or "Shorts glow" in line:
+                logger.warning("[manim subprocess] %s", line.strip())
 
     for mp4 in media_dir.rglob(f"{SHORTS_RUNNER_CLASS}.mp4"):
         if "partial_movie_files" not in str(mp4):
