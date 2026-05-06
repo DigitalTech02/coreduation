@@ -131,9 +131,22 @@ AMBIENT_DECOR_COUNT: int = _int("AMBIENT_DECOR_COUNT", 6)
 
 # Stripe-style mesh gradient backdrop (3 colored blobs that drift).  Off
 # by default — the existing themed gradient + particle field is the safe
-# baseline.  Enable for a more modern SaaS-product look.  Works in both
-# long-form and shorts pipelines.
-ENABLE_MESH_GRADIENT: bool = _bool("ENABLE_MESH_GRADIENT", False)
+# baseline.  Two separate flags so long-form and shorts can be controlled
+# independently — typical use case is "shorts on, long-form off" since
+# the long-form's themed gradient is established and a sudden swap to
+# mesh would feel like a regression for that audience.
+ENABLE_MESH_GRADIENT_LONG: bool = _bool("ENABLE_MESH_GRADIENT_LONG", False)
+ENABLE_MESH_GRADIENT_SHORTS: bool = _bool("ENABLE_MESH_GRADIENT_SHORTS", False)
+
+# Backwards-compat alias: if the old single ENABLE_MESH_GRADIENT is set,
+# it acts as the default for whichever per-pipeline flag isn't explicitly
+# set.  Lets existing setups keep working without a .env edit.
+_MESH_LEGACY = _bool("ENABLE_MESH_GRADIENT", False)
+if _MESH_LEGACY:
+    if not os.environ.get("ENABLE_MESH_GRADIENT_LONG"):
+        ENABLE_MESH_GRADIENT_LONG = True
+    if not os.environ.get("ENABLE_MESH_GRADIENT_SHORTS"):
+        ENABLE_MESH_GRADIENT_SHORTS = True
 
 # Per-scene keyword burst (large faint background word).
 # DISABLED — explicit user feedback (2026-05-04): the dimmed background word

@@ -63,11 +63,11 @@ class ShortsSemanticVideo(MovingCameraScene):
         # Just paint the camera background dark and let the per-scene
         # panel take over.
         try:
-            from config import ENABLE_MESH_GRADIENT
+            from config import ENABLE_MESH_GRADIENT_SHORTS
         except Exception:
-            ENABLE_MESH_GRADIENT = False
+            ENABLE_MESH_GRADIENT_SHORTS = False
 
-        if ENABLE_MESH_GRADIENT:
+        if ENABLE_MESH_GRADIENT_SHORTS:
             from rendering_engine.mesh_gradient import apply_mesh_gradient_background
             apply_mesh_gradient_background(self, category)
         else:
