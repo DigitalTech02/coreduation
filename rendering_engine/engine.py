@@ -91,6 +91,7 @@ _PRESENTATION_TYPES = frozenset({
     "show_math",
     "show_sequence_diagram",
     "show_image",
+    "show_lottie",
     "show_chart",
 })
 
@@ -574,6 +575,7 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         render_update_node,
     )
     from rendering_engine.broll import render_show_image
+    from rendering_engine.lottie_renderer import render_show_lottie
     from rendering_engine.effects import (
         render_flash_cut,
         render_glitch_transition,
@@ -613,6 +615,7 @@ def _dispatch_action(scene, state: SceneState, action) -> None:
         "add_callout": render_add_callout,
         "scene_transition": render_scene_transition,
         "show_image": render_show_image,
+        "show_lottie": render_show_lottie,
         "flash_cut": render_flash_cut,
         "zoom_punch": render_zoom_punch,
         "glitch_transition": render_glitch_transition,

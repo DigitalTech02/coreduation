@@ -96,6 +96,7 @@ class TestVerticalActionFilter:
             "glitch_transition",
             "scene_transition",
             "show_image",
+            "show_lottie",
             "show_code_block",
         }
         assert VERTICAL_ACTION_WHITELIST == expected

@@ -24,6 +24,7 @@ VERTICAL_ACTION_WHITELIST: frozenset[str] = frozenset({
     "glitch_transition",
     "scene_transition",
     "show_image",
+    "show_lottie",
     "show_code_block",
 })
 

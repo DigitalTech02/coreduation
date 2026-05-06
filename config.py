@@ -136,7 +136,7 @@ AMBIENT_DECOR_COUNT: int = _int("AMBIENT_DECOR_COUNT", 6)
 # the long-form's themed gradient is established and a sudden swap to
 # mesh would feel like a regression for that audience.
 ENABLE_MESH_GRADIENT_LONG: bool = _bool("ENABLE_MESH_GRADIENT_LONG", False)
-ENABLE_MESH_GRADIENT_SHORTS: bool = _bool("ENABLE_MESH_GRADIENT_SHORTS", False)
+ENABLE_MESH_GRADIENT_SHORTS: bool = _bool("ENABLE_MESH_GRADIENT_SHORTS", True)
 
 # Backwards-compat alias: if the old single ENABLE_MESH_GRADIENT is set,
 # it acts as the default for whichever per-pipeline flag isn't explicitly

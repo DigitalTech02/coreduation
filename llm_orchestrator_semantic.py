@@ -28,8 +28,8 @@ _VALID_ACTION_TYPES = frozenset({
     "create_cloud_service", "show_data_flow", "pulse_element",
     "focus_camera", "reset_camera", "show_progress", "update_progress",
     "emphasize_text", "shake_element", "dim_except", "restore_opacity",
-    "add_callout", "scene_transition", "show_image", "flash_cut",
-    "zoom_punch", "glitch_transition", "show_chart",
+    "add_callout", "scene_transition", "show_image", "show_lottie",
+    "flash_cut", "zoom_punch", "glitch_transition", "show_chart",
 })
 
 load_dotenv()

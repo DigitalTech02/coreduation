@@ -466,6 +466,22 @@ class ShowImage(BaseModel):
     pan: str = "auto"  # left|right|in|out|auto
 
 
+class ShowLottie(BaseModel):
+    """Display a Lottie / SVG icon animation.
+
+    Resolution order: assets/lottie/<id>.json (Lottie via lottie pkg) →
+    assets/lottie/<id>.svg → assets/svg_icons/<id>.svg (bundled fallback).
+    Bundled ids: success_check, warning_alert, swipe_arrow, sparkle,
+    loading_dots.  Drop your own .json into assets/lottie/ to override.
+    """
+
+    type: Literal["show_lottie"] = "show_lottie"
+    lottie_id: str
+    duration: float = 1.0
+    position: str = "upper"  # upper|center|lower
+    scale: float = 0.0  # 0 = use default height (2.4 units)
+
+
 class FlashCut(BaseModel):
     """Single-frame flash to inject a pattern interrupt."""
 
@@ -538,6 +554,7 @@ _VisualActionUnion = Union[
     AddCallout,
     SceneTransition,
     ShowImage,
+    ShowLottie,
     FlashCut,
     ZoomPunch,
     GlitchTransition,

@@ -325,6 +325,54 @@ def _split_long_titles(data: dict) -> dict:
     return data
 
 
+def _inject_lottie_icons(data: dict) -> dict:
+    """Auto-inject ``show_lottie`` actions on key shorts scenes.
+
+    Per-scene icon mapping (positional, robust to LLM mood variations):
+      Scene 1 (hook)    — no Lottie (AI illustration carries the visual)
+      Scene 2 (tension) — warning_alert  (yellow ⚠ pop-in mid-scene)
+      Scene 3 (payoff)  — success_check  (green ✓ at the climax beat)
+      Scene 4 (CTA)     — swipe_arrow    (gold ↗ before the CTA overlay)
+
+    Append (not prepend) so the AI illustration plays first, then the
+    icon punctuates after the main content reveals.
+    """
+    scenes = data.get("scenes") or []
+    if not scenes:
+        return data
+
+    icon_for_scene = {
+        1: "warning_alert",
+        2: "success_check",
+        3: "swipe_arrow",
+    }
+    if len(scenes) < 4:
+        return data
+
+    for idx, icon_id in icon_for_scene.items():
+        if idx >= len(scenes):
+            continue
+        scene = scenes[idx]
+        actions = scene.get("actions") or []
+        # Don't inject if LLM already emitted a Lottie for this scene
+        if any((a or {}).get("type") == "show_lottie" for a in actions):
+            continue
+        actions.append({
+            "type": "show_lottie",
+            "lottie_id": icon_id,
+            "duration": 1.0,
+            "position": "upper",
+            "scale": 2.4,
+        })
+        scene["actions"] = actions
+        logger.info(
+            "Injected show_lottie %r on shorts scene %d (%s)",
+            icon_id, idx, scene.get("scene_id", "?"),
+        )
+
+    return data
+
+
 def _inject_pattern_interrupts(data: dict) -> dict:
     """Force-inject pattern-interrupt actions on key scene positions.
 
@@ -537,6 +585,7 @@ def generate_shorts_script(
                 cached = _split_long_titles(cached)
                 cached = _inject_pattern_interrupts(cached)
                 cached = _inject_ai_illustrations(cached, topic)
+                cached = _inject_lottie_icons(cached)
                 llm_script = SemanticVideoScript.model_validate(cached)
             except Exception as e:
                 logger.warning("Cached shorts script failed validation, regenerating: %s", e)
@@ -567,6 +616,7 @@ def generate_shorts_script(
             raw_dict = _split_long_titles(raw_dict)
             raw_dict = _inject_pattern_interrupts(raw_dict)
             raw_dict = _inject_ai_illustrations(raw_dict, topic)
+            raw_dict = _inject_lottie_icons(raw_dict)
             llm_script = SemanticVideoScript.model_validate(raw_dict)
         except Exception as e:
             logger.error("Failed to parse shorts script JSON: %s", e)
