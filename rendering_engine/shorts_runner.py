@@ -54,6 +54,14 @@ class ShortsSemanticVideo(MovingCameraScene):
         except Exception:
             ENABLE_THEMED_BACKGROUNDS = True
 
+        # Shorts deliberately skip the long-form's category-themed gradient.
+        # The per-scene mood panel painted by ``_add_shorts_scene_glow``
+        # in ``full_video_scene.run_full_video_construct`` is the entire
+        # background — fighting it with a layered gradient at z=-100 was
+        # the cause of the "dark canvas, can't see the mood color"
+        # symptom that persisted across multiple panel-opacity bumps.
+        # Just paint the camera background dark and let the per-scene
+        # panel take over.
         try:
             from config import ENABLE_MESH_GRADIENT
         except Exception:
@@ -62,9 +70,8 @@ class ShortsSemanticVideo(MovingCameraScene):
         if ENABLE_MESH_GRADIENT:
             from rendering_engine.mesh_gradient import apply_mesh_gradient_background
             apply_mesh_gradient_background(self, category)
-        elif ENABLE_THEMED_BACKGROUNDS:
-            apply_themed_background(self, category)
         else:
+            # Shorts background is owned entirely by per-scene mood panels.
             self.camera.background_color = BG_COLOR
 
         # Skip ambient margin decor — no margins on vertical.

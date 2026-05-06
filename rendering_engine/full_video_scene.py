@@ -805,37 +805,42 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     if not color:
         return
 
-    from manim import Circle, Line as _Line, Rectangle as _Rect, RoundedRectangle as _RR
+    from manim import Circle, Line as _Line, Rectangle as _Rect
 
     layers: list = []
 
-    # Layer 1 — the big mood panel.  Full-canvas, fully opaque, NO darker
-    # overlays on top (previous "inner vignette" + "bottom slabs" layers
-    # were actively painting the deeper-mood color back over the neon
-    # panel, neutralizing the vibrant color into a dark tint — visible in
-    # frame review as "dark canvas", not "vibrant red panel").
-    panel = _RR(
-        width=8.4, height=14.6,   # slightly larger than 8x14.222 frame so edges aren't clipped
-        corner_radius=0.0,        # no rounded corners on a full-bleed panel
+    # Belt: set the camera's background_color to the mood color directly.
+    # This paints the LITERAL canvas — no z-index, no opacity multiplier,
+    # no Manim mobject pipeline can hide it.
+    try:
+        scene.camera.background_color = color
+    except Exception:
+        pass
+
+    # Suspenders: also place a plain Rectangle (NOT RoundedRectangle —
+    # corner_radius=0 on RoundedRectangle was a candidate cause of the
+    # invisible-panel bug) at the very back z-index.  Sized larger than
+    # the 8×14.222 vertical frame so the edges aren't clipped.  The
+    # shorts runner now skips ``apply_themed_background`` so there's no
+    # competing gradient at z=-100; we own the background outright.
+    panel = _Rect(
+        width=9.0, height=15.5,
         color=color, stroke_width=0,
-        fill_color=color, fill_opacity=1.0,
     )
+    panel.set_fill(color, opacity=1.0)
     panel.move_to([0, 0, 0])
-    panel.set_z_index(-50)
-    panel.set_fill(color, opacity=1.0)  # belt + suspenders against opacity-multiplier quirks
+    panel.set_z_index(-100)
     layers.append(panel)
 
-    # Layer 2 — single subtle bottom darken (was 3 stacked slabs at high
-    # opacity which murdered the panel color in the bottom half).  One
-    # gentle fade slab at low opacity to give the bottom edge a slight
-    # vignette without killing the saturation.
+    # Layer 2 — single subtle bottom vignette in deeper mood color.
+    # Gives the bottom edge depth without darkening the central panel.
     slab = _Rect(
-        width=8.4, height=3.5,
+        width=9.0, height=3.5,
         color=deep, stroke_width=0,
     )
-    slab.set_fill(deep, opacity=0.20)
+    slab.set_fill(deep, opacity=0.30)
     slab.move_to([0, -5.4, 0])
-    slab.set_z_index(-48)
+    slab.set_z_index(-95)  # just above the panel, well behind content
     layers.append(slab)
 
     # Layer 3 — diagonal white light-ray streaks for energy.  Sit ABOVE
@@ -855,15 +860,15 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
             end=[x_offset + dx, y_offset + dy, 0],
             color="#ffffff", stroke_width=4 + i * 0.8,
         )
-        ray.set_opacity(0.20 + i * 0.06)
-        ray.set_z_index(-47)
+        ray.set_opacity(0.18 + i * 0.06)
+        ray.set_z_index(-90)  # above panel + slab, below content
         layers.append(ray)
 
     # Layer 4 — accent corner bloom top-right.
     blob = Circle(radius=1.8, color="#ffffff", stroke_width=0)
-    blob.set_fill("#ffffff", opacity=0.20)
+    blob.set_fill("#ffffff", opacity=0.16)
     blob.move_to([3.0, 5.6, 0])
-    blob.set_z_index(-47)
+    blob.set_z_index(-90)
     layers.append(blob)
 
     layer_group = VGroup(*layers)
