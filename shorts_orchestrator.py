@@ -190,6 +190,93 @@ def _derive_image_prompt(
     return f"{subject}, {_AI_BROLL_BASE_STYLE}"
 
 
+def _split_at_natural_break(text: str, max_title_chars: int = 35) -> tuple[str, str]:
+    """Split a long sentence into (title, body) at the most punchy break.
+
+    Priority of split points: em-dash → colon → first comma → word boundary
+    near max_title_chars.  Returns (title, body); body may be empty if the
+    text is already short enough to be one title.
+
+    Example:
+        "No one told you—every secure website hides a secret handshake"
+        → ("No one told you", "every secure website hides a secret handshake")
+    """
+    s = (text or "").strip()
+    if not s:
+        return "", ""
+
+    # Title is fine as-is when short enough
+    if len(s) <= max_title_chars:
+        return s, ""
+
+    # Em-dash split (highest signal — typically marks the punch line)
+    for em in ("—", "–", " - "):
+        if em in s:
+            idx = s.find(em)
+            title = s[:idx].strip().rstrip(".,;:!?")
+            body = s[idx + len(em):].strip()
+            if title and 4 <= len(title) <= max_title_chars + 15:
+                return title, body
+
+    # Colon split
+    if ":" in s:
+        idx = s.find(":")
+        title = s[:idx].strip()
+        body = s[idx + 1:].strip()
+        if title and 4 <= len(title) <= max_title_chars + 15:
+            return title, body
+
+    # First comma
+    if "," in s:
+        idx = s.find(",")
+        title = s[:idx].strip()
+        body = s[idx + 1:].strip()
+        if title and 4 <= len(title) <= max_title_chars + 10:
+            return title, body
+
+    # Last resort: word-boundary truncate
+    words = s.split()
+    title_words: list[str] = []
+    char_count = 0
+    for w in words:
+        if char_count + len(w) + (1 if title_words else 0) > max_title_chars:
+            break
+        title_words.append(w)
+        char_count += len(w) + (1 if len(title_words) > 1 else 0)
+    if title_words:
+        title = " ".join(title_words).rstrip(".,;:!?")
+        rest = s[len(" ".join(title_words)):].lstrip(" ,.;:!?")
+        return title, rest
+    return s, ""
+
+
+def _split_long_titles(data: dict) -> dict:
+    """Walk every show_text_block action; if title > 40 chars and body empty,
+    split into (title, body) at a natural break.  Prevents the renderer's
+    auto-shrink from compressing big-font titles into 30pt mush.
+    """
+    for scene in data.get("scenes", []):
+        for act in scene.get("actions", []) or []:
+            if (act or {}).get("type") != "show_text_block":
+                continue
+            title = (act.get("title") or "").strip()
+            body = (act.get("body") or "").strip()
+            if not title or body:  # nothing to split, or body already populated
+                continue
+            if len(title) <= 40:
+                continue
+            new_title, new_body = _split_at_natural_break(title)
+            if new_body:
+                act["title"] = new_title
+                act["body"] = new_body
+                logger.info(
+                    "Split long title in scene '%s': %r → %r + %r",
+                    scene.get("scene_id", "?"),
+                    title[:40], new_title[:40], new_body[:40],
+                )
+    return data
+
+
 def _inject_pattern_interrupts(data: dict) -> dict:
     """Force-inject pattern-interrupt actions on key scene positions.
 
@@ -278,13 +365,25 @@ def _enrich_empty_actions(data: dict) -> dict:
                     if idx != -1 and (first_sentence_end == -1 or idx < first_sentence_end):
                         first_sentence_end = idx + 1
                 if 0 < first_sentence_end < len(narration) - 4:
-                    act["title"] = narration[:first_sentence_end].strip().rstrip(".!?")
-                    act["body"] = narration[first_sentence_end:].strip()[:200]
+                    full_title = narration[:first_sentence_end].strip().rstrip(".!?")
+                    rest = narration[first_sentence_end:].strip()[:200]
                 else:
-                    # Single sentence — put it in TITLE (big headline font),
-                    # not body.  Otherwise a short hook narration renders at
-                    # body size which is the smallest text on the canvas.
-                    act["title"] = narration.strip().rstrip(".!?")[:200]
+                    full_title = narration.strip().rstrip(".!?")
+                    rest = ""
+
+                # Always run the title through the natural-break splitter so
+                # we never end up with an 80-char title that the renderer
+                # has to auto-shrink to fit.  If the title splits, append
+                # the split-off remainder to whatever rest was.
+                t, b = _split_at_natural_break(full_title)
+                if b:
+                    act["title"] = t
+                    extra = (b + (" " + rest if rest else "")).strip()
+                    act["body"] = extra[:200]
+                else:
+                    act["title"] = t[:200]
+                    if rest:
+                        act["body"] = rest
                 logger.info(
                     "Auto-filled empty show_text_block in scene '%s' from narration",
                     scene.get("scene_id", "?"),
@@ -387,6 +486,7 @@ def generate_shorts_script(
                 cached = _filter_to_vertical_actions(cached)
                 cached = _truncate_scenes(cached)
                 cached = _enrich_empty_actions(cached)
+                cached = _split_long_titles(cached)
                 cached = _inject_pattern_interrupts(cached)
                 cached = _inject_ai_illustrations(cached, topic)
                 llm_script = SemanticVideoScript.model_validate(cached)
@@ -416,6 +516,7 @@ def generate_shorts_script(
             raw_dict = _filter_to_vertical_actions(raw_dict)
             raw_dict = _truncate_scenes(raw_dict)
             raw_dict = _enrich_empty_actions(raw_dict)
+            raw_dict = _split_long_titles(raw_dict)
             raw_dict = _inject_pattern_interrupts(raw_dict)
             raw_dict = _inject_ai_illustrations(raw_dict, topic)
             llm_script = SemanticVideoScript.model_validate(raw_dict)

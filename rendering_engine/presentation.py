@@ -65,6 +65,35 @@ if TYPE_CHECKING:
 
     from rendering_engine.engine import SceneState
 
+def _word_wrap_for_shorts(text: str, max_chars_per_line: int = 18) -> str:
+    """Wrap *text* to multiple lines so we never trigger Manim's
+    ``set_width()`` auto-shrink (which scales the font down).
+
+    Preserves word boundaries.  Returns the text with ``\\n`` inserted at
+    natural break points, or the original text if it already fits.
+    """
+    text = (text or "").strip()
+    if len(text) <= max_chars_per_line:
+        return text
+
+    words = text.split()
+    lines: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for w in words:
+        added = len(w) + (1 if current else 0)
+        if current and current_len + added > max_chars_per_line:
+            lines.append(" ".join(current))
+            current = [w]
+            current_len = len(w)
+        else:
+            current.append(w)
+            current_len += added
+    if current:
+        lines.append(" ".join(current))
+    return "\n".join(lines)
+
+
 _anim_cycle_counter = 0
 
 
@@ -343,24 +372,38 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     body_break_threshold = 40 if is_shorts else 100
 
     if action.title:
+        # Shorts: word-wrap the title BEFORE creating the Text mobject so
+        # we never trigger Manim's set_width() auto-shrink (which scales
+        # the FONT down, defeating the whole point of a 112pt headline).
+        # Long-form keeps the original behavior.
+        title_text = action.title
+        if is_shorts:
+            title_text = _word_wrap_for_shorts(title_text, max_chars_per_line=18)
         title_mob = Text(
-            action.title, font_size=title_size, color=PRIMARY, weight="BOLD",
+            title_text, font_size=title_size, color=PRIMARY, weight="BOLD",
         )
-        # Title can't exceed canvas width either.  In shorts the safe width
-        # is ~6.6 units (leaves a 0.7-unit buffer on each side for the
-        # platform UI button columns); horizontal long-form is ~12.
+        # Defensive: if even after wrapping the title is too wide (single
+        # very long word), fall back to set_width.  Only triggers in edge
+        # cases — most titles wrap cleanly to multiple lines instead.
         max_title_width = 6.6 if is_shorts else 12.0
         if title_mob.width > max_title_width:
             title_mob.set_width(max_title_width)
         parts.append(title_mob)
 
     if action.body:
+        body_text = action.body
+        if is_shorts:
+            body_text = _word_wrap_for_shorts(body_text, max_chars_per_line=24)
         body = Text(
-            action.body, font_size=body_size, color=MUTED,
+            body_text, font_size=body_size, color=MUTED,
             line_spacing=1.4, weight="MEDIUM" if is_shorts else "NORMAL",
         )
-        if len(action.body) > body_break_threshold:
+        # Long-form keeps the auto-shrink fallback; shorts wrap above so
+        # this branch should not fire for them, but defensive cap stays.
+        if not is_shorts and len(action.body) > body_break_threshold:
             body.set_width(min(body.width, body_max_width))
+        elif is_shorts and body.width > body_max_width:
+            body.set_width(body_max_width)
         parts.append(body)
 
     if not parts:

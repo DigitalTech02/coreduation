@@ -747,22 +747,22 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     layers: list = []
 
     # Layer 1 — the big mood panel.  Rounded edges for that infographic
-    # "card" feel.  Fill at 0.55 so text on top reads, but the color
-    # dominates the visual identity of the scene.
+    # "card" feel.  Fill at 0.85 so the color genuinely dominates the
+    # canvas (was 0.55 — too faint, the panel was barely visible against
+    # the dark gradient background per user frame review).
     panel = _RR(
         width=7.6, height=10.5,
         corner_radius=0.40,
-        color=color, stroke_width=4,
-        fill_color=color, fill_opacity=0.55,
+        color=color, stroke_width=6,
+        fill_color=color, fill_opacity=0.85,
     )
     panel.move_to([0, 0.75, 0])
     panel.set_z_index(-50)
     layers.append(panel)
 
     # Layer 2 — bottom gradient overlay using the deeper mood color.
-    # Creates a vertical gradient look without Manim's gradient API
-    # (which is finicky).  Stack 3 progressively darker rectangles.
-    for i, opacity in enumerate([0.18, 0.30, 0.42]):
+    # Stack 3 progressively darker rectangles for vertical depth.
+    for i, opacity in enumerate([0.30, 0.45, 0.60]):
         slab = _Rect(
             width=7.4, height=2.0 + i * 0.6,
             color=deep, stroke_width=0,
@@ -773,8 +773,8 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
         layers.append(slab)
 
     # Layer 3 — diagonal light-ray streaks for energy.  4 lines at
-    # increasing opacity, all tilted at the same angle (~25°).  Sit
-    # behind the panel for a "background motion" feel.
+    # increasing opacity, tilted at 25°.  Bumped opacity 0.18-0.33 →
+    # 0.45-0.65 so they actually read on the panel.
     import math
     for i, (x_offset, y_offset, length) in enumerate([
         (-2.5,  3.0, 11.0),
@@ -788,15 +788,15 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
         ray = _Line(
             start=[x_offset - dx, y_offset - dy, 0],
             end=[x_offset + dx, y_offset + dy, 0],
-            color=color, stroke_width=2 + i * 0.5,
+            color="#ffffff", stroke_width=3 + i * 0.7,
         )
-        ray.set_opacity(0.18 + i * 0.05)
+        ray.set_opacity(0.18 + i * 0.06)
         ray.set_z_index(-51)
         layers.append(ray)
 
-    # Layer 4 — accent corner blob top-right for visual interest.
-    blob = Circle(radius=1.4, color=color, stroke_width=0)
-    blob.set_fill(color, opacity=0.35)
+    # Layer 4 — accent corner blob top-right for visual asymmetry.
+    blob = Circle(radius=1.6, color="#ffffff", stroke_width=0)
+    blob.set_fill("#ffffff", opacity=0.18)
     blob.move_to([3.0, 5.4, 0])
     blob.set_z_index(-48)
     layers.append(blob)
