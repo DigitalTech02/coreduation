@@ -165,10 +165,12 @@ ENABLE_AI_BROLL: bool = _bool("ENABLE_AI_BROLL", False)
 BROLL_IMAGE_MODEL: str = _str("BROLL_IMAGE_MODEL", "dall-e-3")
 
 # Provider for AI B-roll image generation.
-#   "openai" — DALL-E 3 (~$0.04/image, high quality)
-#   "fal"    — fal.ai (~$0.003/image with FLUX schnell, ~13x cheaper)
-# Default: "fal" since it's much cheaper and fast enough for shorts.
-# Falls back to OpenAI if fal_client isn't installed or FAL_KEY is missing.
+#   "fal"       — fal.ai (~$0.003/image with FLUX schnell, default)
+#   "openai"    — DALL-E 3 (~$0.04/image, high quality)
+#   "recraft"   — Recraft V3 (~$0.04, best for vector/illustration style)
+#   "replicate" — Replicate (~$0.003 with FLUX schnell, large catalog)
+# All providers fall back to OpenAI DALL-E if their API key is missing
+# or the SDK isn't installed, so the pipeline never breaks.
 BROLL_IMAGE_PROVIDER: str = _str("BROLL_IMAGE_PROVIDER", "fal")
 
 # Model name when BROLL_IMAGE_PROVIDER="fal".
@@ -176,6 +178,24 @@ BROLL_IMAGE_PROVIDER: str = _str("BROLL_IMAGE_PROVIDER", "fal")
 #   fal-ai/flux/dev     — higher quality, ~$0.025/image, ~5s latency
 #   fal-ai/flux-pro     — best quality, ~$0.05/image
 FAL_IMAGE_MODEL: str = _str("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
+
+# Recraft V3 — best for vector / infographic / illustration style.
+#   recraftv3              — $0.04/image
+#   recraft-20b            — $0.022/image (cheaper, slightly less polished)
+RECRAFT_IMAGE_MODEL: str = _str("RECRAFT_IMAGE_MODEL", "recraftv3")
+# Recraft style preset.  Most useful for shorts:
+#   digital_illustration   — vibrant cartoon panels (default)
+#   vector_illustration    — flat vector / icon style
+#   realistic_image        — photorealistic
+# Sub-styles supported via slash, e.g. "digital_illustration/3d".
+RECRAFT_STYLE: str = _str("RECRAFT_STYLE", "digital_illustration")
+
+# Replicate model id.  Format is "owner/model".
+#   black-forest-labs/flux-schnell    — ~$0.003/image, fastest
+#   black-forest-labs/flux-dev        — ~$0.025/image, higher quality
+#   black-forest-labs/flux-1.1-pro    — ~$0.04/image, best FLUX
+#   stability-ai/stable-diffusion-3.5-large — SD 3.5 alternative
+REPLICATE_IMAGE_MODEL: str = _str("REPLICATE_IMAGE_MODEL", "black-forest-labs/flux-schnell")
 
 # 3D topology
 ENABLE_3D_TOPOLOGY: bool = _bool("ENABLE_3D_TOPOLOGY", True)

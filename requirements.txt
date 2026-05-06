@@ -12,6 +12,8 @@ openai-whisper>=20231117
 pillow>=10.0.0
 rembg>=2.0.50
 fal-client>=0.5.0  # cheaper AI B-roll via fal.ai (BROLL_IMAGE_PROVIDER=fal)
+replicate>=1.0.4   # alt B-roll provider (BROLL_IMAGE_PROVIDER=replicate)
+# Recraft uses direct REST (no SDK dependency) — set RECRAFT_API_TOKEN to use
 google-api-python-client>=2.130.0
 google-auth-httplib2>=0.2.0
 google-auth-oauthlib>=1.2.0
