@@ -803,44 +803,53 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     color = _SHORTS_MOOD_GLOW.get((voice_mood or "").strip().lower())
     deep = _SHORTS_MOOD_GLOW_DEEP.get((voice_mood or "").strip().lower(), "#000000")
     if not color:
+        logger.warning("Shorts glow: no color for voice_mood=%r — skipping", voice_mood)
         return
+
+    # Loud log — we've debugged 6+ commits trying to make this panel
+    # visible.  This warning confirms the function runs and what color
+    # was selected.  If you don't see this in the render log, the
+    # function isn't being called.  If you do see it but the canvas is
+    # still dark, the issue is in Manim's mobject pipeline / z-index.
+    logger.warning(
+        "Shorts panel: voice_mood=%r color=%s — adding mood panel layers",
+        voice_mood, color,
+    )
 
     from manim import Circle, Line as _Line, Rectangle as _Rect
 
     layers: list = []
 
     # Belt: set the camera's background_color to the mood color directly.
-    # This paints the LITERAL canvas — no z-index, no opacity multiplier,
-    # no Manim mobject pipeline can hide it.
     try:
         scene.camera.background_color = color
-    except Exception:
-        pass
+        logger.warning("Shorts panel: camera.background_color set to %s", color)
+    except Exception as e:
+        logger.warning("Shorts panel: camera.background_color failed: %s", e)
 
-    # Suspenders: also place a plain Rectangle (NOT RoundedRectangle —
-    # corner_radius=0 on RoundedRectangle was a candidate cause of the
-    # invisible-panel bug) at the very back z-index.  Sized larger than
-    # the 8×14.222 vertical frame so the edges aren't clipped.  The
-    # shorts runner now skips ``apply_themed_background`` so there's no
-    # competing gradient at z=-100; we own the background outright.
+    # Suspenders: a full-canvas Rectangle at z=-10.  Tried z=-100 across
+    # multiple commits without any visible result; bumping to -10 (still
+    # behind text/content at z=0+, but well above the previous extreme
+    # negative range).  Manim renderers may have edge cases with very
+    # large negative z values.
     panel = _Rect(
         width=9.0, height=15.5,
         color=color, stroke_width=0,
     )
     panel.set_fill(color, opacity=1.0)
     panel.move_to([0, 0, 0])
-    panel.set_z_index(-100)
+    panel.set_z_index(-10)
     layers.append(panel)
 
-    # Layer 2 — single subtle bottom vignette in deeper mood color.
-    # Gives the bottom edge depth without darkening the central panel.
+    # Layer 2 — subtle bottom vignette in deeper mood color (z just
+    # above the panel but below content).
     slab = _Rect(
         width=9.0, height=3.5,
         color=deep, stroke_width=0,
     )
     slab.set_fill(deep, opacity=0.30)
     slab.move_to([0, -5.4, 0])
-    slab.set_z_index(-95)  # just above the panel, well behind content
+    slab.set_z_index(-9)
     layers.append(slab)
 
     # Layer 3 — diagonal white light-ray streaks for energy.  Sit ABOVE
@@ -861,27 +870,28 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
             color="#ffffff", stroke_width=4 + i * 0.8,
         )
         ray.set_opacity(0.18 + i * 0.06)
-        ray.set_z_index(-90)  # above panel + slab, below content
+        ray.set_z_index(-8)
         layers.append(ray)
 
     # Layer 4 — accent corner bloom top-right.
     blob = Circle(radius=1.8, color="#ffffff", stroke_width=0)
     blob.set_fill("#ffffff", opacity=0.16)
     blob.move_to([3.0, 5.6, 0])
-    blob.set_z_index(-90)
+    blob.set_z_index(-8)
     layers.append(blob)
 
-    # Add each layer DIRECTLY to the scene — no VGroup wrapping.
-    # VGroup has a single z_index (default 0) that overrides child
-    # z_indices for scene-level sorting, which was almost certainly the
-    # cause of the panel rendering invisible despite z=-100 on the
-    # Rectangle.  Adding mobjects individually keeps each one's
-    # explicit z_index.
+    # Add each layer DIRECTLY to the scene — no VGroup wrapping (VGroup's
+    # single z_index overrides child z_indices for scene sorting).
     for mob in layers:
         scene.add(mob)
 
+    logger.warning(
+        "Shorts panel: added %d layers; scene now has %d total mobjects",
+        len(layers), len(scene.mobjects),
+    )
+
     # Keep the layer list in state so we can clear them all together.
-    state.objects["__shorts_glow"] = layers  # store the list, not a VGroup
+    state.objects["__shorts_glow"] = layers
     state._categories["__shorts_glow"] = "shorts_chrome"
 
 
