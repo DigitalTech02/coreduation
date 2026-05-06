@@ -815,6 +815,129 @@ def _topic_palette_index(topic: str, category: str) -> int:
     return int(h, 16) % 3
 
 
+def _attach_drift(
+    mob: Any,
+    *,
+    anchor: tuple[float, float],
+    amp_x: float = 0.5,
+    amp_y: float = 0.3,
+    period: float = 12.0,
+    phase: float = 0.0,
+) -> None:
+    """Add a slow sin-wave drift updater to *mob* anchored at (ax, ay).
+
+    Period is in seconds; longer = slower drift.  amp is in canvas units.
+    Each updater carries its own time accumulator so multiple drifting
+    mobjects don't pulse in sync.
+    """
+    import math
+    ax, ay = anchor
+    clock = [0.0]
+
+    def _drift(m, dt, _ax=ax, _ay=ay, _amp_x=amp_x, _amp_y=amp_y,
+               _period=period, _phase=phase, _t=clock):
+        _t[0] += dt
+        try:
+            t = _t[0]
+            ox = _amp_x * math.sin(2 * math.pi * t / _period + _phase)
+            oy = _amp_y * math.cos(2 * math.pi * t / _period * 0.6 + _phase)
+            m.move_to([_ax + ox, _ay + oy, 0])
+        except Exception:
+            pass
+
+    try:
+        mob.add_updater(_drift)
+    except Exception:
+        pass
+
+
+def _build_shorts_pattern(pattern_index: int, seed_offset: int = 0) -> list:
+    """Build the per-video background pattern overlay.
+
+    Three styles, picked by ``pattern_index``:
+      0 — sparkles: 14 small white drifting dots
+      1 — dot grid: 4×6 grid of faint white dots, slow vertical drift
+      2 — drifting orb stack: 3 concentric expanding rings
+
+    All sit at z=-6 (above panel + bloom + sheen, below content text).
+    Pure white / low opacity so they read as "texture" rather than
+    competing with the mood color.
+    """
+    import math
+    import random
+    from manim import Circle as _Circle
+
+    rng = random.Random(0xA1B2 + seed_offset * 17)
+    layers: list = []
+
+    if pattern_index == 0:
+        # Sparkle field — 14 small drifting dots scattered across the panel.
+        for i in range(14):
+            x = rng.uniform(-3.4, 3.4)
+            y = rng.uniform(-3.5, 5.0)
+            radius = rng.uniform(0.04, 0.10)
+            opacity = rng.uniform(0.30, 0.65)
+            dot = _Circle(radius=radius, color="#ffffff", stroke_width=0)
+            dot.set_fill("#ffffff", opacity=opacity)
+            dot.move_to([x, y, 0])
+            dot.set_z_index(-6)
+            _attach_drift(
+                dot,
+                anchor=(x, y),
+                amp_x=rng.uniform(0.10, 0.30),
+                amp_y=rng.uniform(0.10, 0.30),
+                period=rng.uniform(7.0, 14.0),
+                phase=rng.uniform(0.0, math.tau),
+            )
+            layers.append(dot)
+        return layers
+
+    if pattern_index == 1:
+        # Dot grid — 4 cols × 5 rows of faint dots, slow vertical drift
+        # in a wave so the grid breathes.
+        cols, rows = 4, 5
+        x_spacing = 7.0 / (cols - 1)
+        y_spacing = 8.5 / (rows - 1)
+        for ci in range(cols):
+            for ri in range(rows):
+                x = -3.5 + ci * x_spacing
+                y = 4.0 - ri * y_spacing
+                dot = _Circle(radius=0.08, color="#ffffff", stroke_width=0)
+                dot.set_fill("#ffffff", opacity=0.30)
+                dot.move_to([x, y, 0])
+                dot.set_z_index(-6)
+                _attach_drift(
+                    dot,
+                    anchor=(x, y),
+                    amp_x=0.0,
+                    amp_y=0.20,
+                    period=8.0,
+                    phase=ci * 0.5 + ri * 0.3,
+                )
+                layers.append(dot)
+        return layers
+
+    # pattern_index == 2: drifting orb stack — 3 concentric circles
+    # at the center that drift slowly.  Reads as a "radar / scanning"
+    # texture under the content.
+    for i, (radius, opacity) in enumerate([(2.4, 0.22), (3.4, 0.14), (4.4, 0.08)]):
+        ring = _Circle(radius=radius, color="#ffffff", stroke_width=2)
+        ring.set_fill("#ffffff", opacity=opacity)
+        ring.set_stroke("#ffffff", width=2, opacity=0.40)
+        ring.move_to([0.5, -0.5, 0])
+        ring.set_z_index(-6)
+        _attach_drift(
+            ring,
+            anchor=(0.5, -0.5),
+            amp_x=0.6,
+            amp_y=0.4,
+            period=12.0 + i * 3.0,
+            phase=i * 1.2,
+        )
+        layers.append(ring)
+    return layers
+
+
 # Backwards-compat: legacy single-color maps for code that doesn't yet
 # look up the palette index.  Each maps to variant 0 of the palette.
 _SHORTS_MOOD_GLOW: dict[str, str] = {
@@ -930,14 +1053,39 @@ def _add_shorts_scene_glow(
 
     # Layer 4 — accent corner bloom.  Position varies per palette index
     # for visual variety: variant 0 = top-right, variant 1 = top-left,
-    # variant 2 = mid-right.
+    # variant 2 = mid-right.  Now ANIMATED — drifts on a slow figure-8
+    # so the canvas never feels static.
     blob_positions = [(3.0, 5.6, 0), (-3.0, 5.6, 0), (3.4, 1.5, 0)]
     bx, by, bz = blob_positions[palette_index % 3]
     blob = Circle(radius=1.8, color="#ffffff", stroke_width=0)
-    blob.set_fill("#ffffff", opacity=0.18)
+    blob.set_fill("#ffffff", opacity=0.20)
     blob.move_to([bx, by, bz])
     blob.set_z_index(-8)
+    _attach_drift(blob, anchor=(bx, by), amp_x=0.45, amp_y=0.30, period=11.0, phase=0.0)
     layers.append(blob)
+
+    # Layer 4b — SECONDARY contrasting blob that drifts diagonally across
+    # the panel.  Color contrasts with the panel for visible motion (red
+    # panel gets purple/cyan drift, blue panel gets orange/gold, etc.).
+    contrast_colors = [
+        ("#bf5af2", "#5e5ce6", "#ff9500"),  # variants for hook/dramatic (red/orange) panels
+        ("#ffcc00", "#ff6b1f", "#3fdca1"),  # variants for narrator (blue) panels
+        ("#0a84ff", "#ff2d55", "#bf5af2"),  # variants for excited (gold) panels
+    ]
+    if mood_key in ("hook", "dramatic", "urgent"):
+        contrast_color = contrast_colors[0][palette_index % 3]
+    elif mood_key in ("narrator", "analytical", "calm"):
+        contrast_color = contrast_colors[1][palette_index % 3]
+    else:  # excited
+        contrast_color = contrast_colors[2][palette_index % 3]
+
+    secondary = Circle(radius=2.6, color=contrast_color, stroke_width=0)
+    secondary.set_fill(contrast_color, opacity=0.28)
+    sx, sy = (-2.0, -2.5)
+    secondary.move_to([sx, sy, 0])
+    secondary.set_z_index(-9)  # below the bright bloom but above panel
+    _attach_drift(secondary, anchor=(sx, sy), amp_x=1.4, amp_y=0.9, period=18.0, phase=1.5)
+    layers.append(secondary)
 
     # Layer 5 — GLOSSY SHEEN.  Wide, short, semi-transparent white
     # rectangle near the top of the panel that reads as "gloss reflecting
@@ -948,6 +1096,15 @@ def _add_shorts_scene_glow(
     sheen.move_to([0, 5.0, 0])
     sheen.set_z_index(-7)
     layers.append(sheen)
+
+    # Layer 6 — TOPIC-PICKED PATTERN OVERLAY.  Three styles chosen by
+    # palette_index so two videos with different topic hashes get
+    # distinctly different background textures.
+    pattern_layers = _build_shorts_pattern(
+        pattern_index=palette_index % 3,
+        seed_offset=palette_index,
+    )
+    layers.extend(pattern_layers)
 
     # Add each layer DIRECTLY to the scene — no VGroup wrapping (VGroup's
     # single z_index overrides child z_indices for scene sorting).
