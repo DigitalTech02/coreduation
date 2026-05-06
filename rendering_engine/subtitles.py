@@ -421,8 +421,10 @@ def schedule_subtitles_for_scene(
     except Exception:
         is_vertical = False
 
-    sub_font = int(SUBTITLE_FONT_SIZE_DISPLAY * 1.95) if is_vertical else SUBTITLE_FONT_SIZE_DISPLAY
-    sub_max_w = 7.2 if is_vertical else SUBTITLE_MAX_WIDTH
+    # 28 × 2.4 = 67pt — comfortable phone-read size (>70pt is ideal but
+    # any larger and 7-word chunks wrap into 2 lines).
+    sub_font = int(SUBTITLE_FONT_SIZE_DISPLAY * 2.4) if is_vertical else SUBTITLE_FONT_SIZE_DISPLAY
+    sub_max_w = 7.0 if is_vertical else SUBTITLE_MAX_WIDTH
 
     for chunk_text, (start, end) in zip(chunks, slices):
         txt = Text(

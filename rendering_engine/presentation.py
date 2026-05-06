@@ -331,14 +331,14 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     parts = []
     title_mob = None
 
-    # Shorts mode: BIG, bold, dominant text on a 9:16 canvas — but kept
-    # narrow enough to clear the right-side button column (Like / Comment /
-    # Share) that platform UIs overlay on the right ~10% of the canvas.
-    # Max width tightened from 7.2 → 6.6 units (was overlapping the right
-    # safe-zone).
+    # Shorts mode: BIG, bold, dominant text on a 9:16 canvas — kept narrow
+    # enough to clear the right-side button column (Like / Comment / Share)
+    # that platform UIs overlay on the right ~10% of the canvas.  Phone
+    # comfortable-read minimum is ~70pt; current scales produce
+    # title=112pt body=68pt bullet=62pt — all comfortably above threshold.
     is_shorts = getattr(state, "mode", "long") == "shorts"
-    title_size = int(TITLE_FONT_SIZE * 2.4) if is_shorts else TITLE_FONT_SIZE
-    body_size = int(BODY_FONT_SIZE * 2.0) if is_shorts else BODY_FONT_SIZE
+    title_size = int(TITLE_FONT_SIZE * 2.8) if is_shorts else TITLE_FONT_SIZE   # 40 → 112
+    body_size = int(BODY_FONT_SIZE * 2.6) if is_shorts else BODY_FONT_SIZE      # 26 → 68
     body_max_width = 6.6 if is_shorts else 10.0
     body_break_threshold = 40 if is_shorts else 100
 
@@ -405,8 +405,11 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     title_mob = None
 
     # Shorts mode: bigger fonts so the bullet card fills the vertical canvas.
+    # Title at 32 × 2.3 = 74pt; bullets at 26 × 2.4 = 62pt.  Both above
+    # the 70pt phone-comfort threshold for the title and just under for
+    # bullets (kept smaller so the title still reads as the header).
     is_shorts = getattr(state, "mode", "long") == "shorts"
-    bullet_title_size = int(SUBTITLE_FONT_SIZE * 2.0) if is_shorts else SUBTITLE_FONT_SIZE
+    bullet_title_size = int(SUBTITLE_FONT_SIZE * 2.3) if is_shorts else SUBTITLE_FONT_SIZE
 
     if action.title:
         title_mob = Text(
@@ -415,7 +418,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
         )
         parts.append(title_mob)
 
-    bullet_size = int(BODY_FONT_SIZE * 1.9) if is_shorts else BODY_FONT_SIZE
+    bullet_size = int(BODY_FONT_SIZE * 2.4) if is_shorts else BODY_FONT_SIZE   # 26 → 62
     bullet_max_w = 6.6 if is_shorts else 10.0
     bullets = []
     for item_text in action.items:
@@ -556,7 +559,8 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
     title_mob = None
 
     if action.title:
-        title_size = int(SUBTITLE_FONT_SIZE * 1.5) if is_shorts else SUBTITLE_FONT_SIZE
+        # Code-block title: 32 × 1.9 = 61pt in shorts (was 48pt — too small).
+        title_size = int(SUBTITLE_FONT_SIZE * 1.9) if is_shorts else SUBTITLE_FONT_SIZE
         title_mob = Text(
             action.title, font_size=title_size,
             color=WHITE if is_shorts else PRIMARY,

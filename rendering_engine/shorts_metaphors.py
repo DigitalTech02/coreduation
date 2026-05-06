@@ -141,14 +141,14 @@ def _build_handshake(accent_color=GREEN) -> VGroup:
     left_circle = Circle(radius=0.55, color=BLUE, stroke_width=6)
     left_circle.set_fill(BLUE, opacity=0.4)
     left_circle.shift(LEFT * 1.65)
-    left_label = Text("Client", font_size=24, color=WHITE, weight="BOLD")
-    left_label.next_to(left_circle, DOWN, buff=0.18)
+    left_label = Text("Client", font_size=34, color=WHITE, weight="BOLD")
+    left_label.next_to(left_circle, DOWN, buff=0.22)
 
     right_circle = Circle(radius=0.55, color=ORANGE, stroke_width=6)
     right_circle.set_fill(ORANGE, opacity=0.4)
     right_circle.shift(RIGHT * 1.65)
-    right_label = Text("Server", font_size=24, color=WHITE, weight="BOLD")
-    right_label.next_to(right_circle, DOWN, buff=0.18)
+    right_label = Text("Server", font_size=34, color=WHITE, weight="BOLD")
+    right_label.next_to(right_circle, DOWN, buff=0.22)
 
     line = Line(
         left_circle.get_right(), right_circle.get_left(),

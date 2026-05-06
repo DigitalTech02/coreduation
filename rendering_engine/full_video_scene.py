@@ -663,7 +663,7 @@ def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> 
         return
 
     accent = CATEGORY_ACCENT.get(category, PRIMARY)
-    txt = Text(label, font_size=38, color=WHITE, weight="BOLD")
+    txt = Text(label, font_size=46, color=WHITE, weight="BOLD")
 
     pill = RoundedRectangle(
         width=txt.width + 1.0,
@@ -897,12 +897,12 @@ def _play_shorts_cta_overlay(scene: Any, category: str) -> None:
     """
     accent = CATEGORY_ACCENT.get(category, PRIMARY)
 
-    label = Text("WATCH FULL VIDEO", font_size=46, color=WHITE, weight="BOLD")
+    label = Text("WATCH FULL VIDEO", font_size=64, color=WHITE, weight="BOLD")
     arrow = Arrow(
-        start=[0, 0.7, 0], end=[0, -0.45, 0],
-        color=accent, stroke_width=14, max_tip_length_to_length_ratio=0.4,
+        start=[0, 0.85, 0], end=[0, -0.55, 0],
+        color=accent, stroke_width=18, max_tip_length_to_length_ratio=0.4,
     )
-    sub = Text("link in description", font_size=32, color=accent, weight="BOLD")
+    sub = Text("link in description", font_size=42, color=accent, weight="BOLD")
 
     cta = VGroup(label, arrow, sub).arrange(DOWN, buff=0.30)
     try:

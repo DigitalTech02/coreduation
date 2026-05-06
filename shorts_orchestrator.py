@@ -281,8 +281,10 @@ def _enrich_empty_actions(data: dict) -> dict:
                     act["title"] = narration[:first_sentence_end].strip().rstrip(".!?")
                     act["body"] = narration[first_sentence_end:].strip()[:200]
                 else:
-                    # Single sentence — put the whole thing in body for big bold treatment.
-                    act["body"] = narration[:200]
+                    # Single sentence — put it in TITLE (big headline font),
+                    # not body.  Otherwise a short hook narration renders at
+                    # body size which is the smallest text on the canvas.
+                    act["title"] = narration.strip().rstrip(".!?")[:200]
                 logger.info(
                     "Auto-filled empty show_text_block in scene '%s' from narration",
                     scene.get("scene_id", "?"),
