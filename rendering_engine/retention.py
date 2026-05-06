@@ -291,6 +291,14 @@ def render_emphasize_text(scene: "ManimScene", state: "SceneState", action) -> N
     except Exception:
         pass
 
+    # Glow-pulse halo around the emphasized text — Phase 1 cross-cutting.
+    # Adds the "highlighted" feel without changing the underlying behavior.
+    try:
+        from rendering_engine.micro_animations import play_glow_pulse
+        play_glow_pulse(scene, txt, color=ACCENT, duration=0.55)
+    except Exception:
+        pass
+
     scene.wait(max(0.1, action.duration * 0.2))
 
     import uuid

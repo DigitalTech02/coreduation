@@ -98,31 +98,39 @@ _anim_cycle_counter = 0
 
 
 def _next_title_anim(mob):
-    """Cycle through varied entrance animations for titles."""
+    """Cycle through varied entrance animations for titles.
+
+    Uses spring-physics easing (Framer Motion / iOS feel) — every entrance
+    overshoots slightly then settles, making cards feel "alive" vs the
+    flat linear arrival of cubic_ease_out.  Applies to both long-form
+    and shorts pipelines.
+    """
+    from rendering_engine.easing import spring_out
     global _anim_cycle_counter
     _anim_cycle_counter += 1
     choice = _anim_cycle_counter % 4
     if choice == 0:
         return Write(mob, run_time=0.7)
     elif choice == 1:
-        return GrowFromCenter(mob, run_time=0.6)
+        return GrowFromCenter(mob, run_time=0.6, rate_func=spring_out)
     elif choice == 2:
-        return FadeIn(mob, shift=DOWN * 0.25, run_time=0.5)
+        return FadeIn(mob, shift=DOWN * 0.25, run_time=0.55, rate_func=spring_out)
     else:
-        return FadeIn(mob, shift=RIGHT * 0.4, run_time=0.5)
+        return FadeIn(mob, shift=RIGHT * 0.4, run_time=0.55, rate_func=spring_out)
 
 
 def _next_bullet_anim(mob, index: int):
-    """Varied entrance for progressive bullet items."""
+    """Varied entrance for progressive bullet items, spring-eased."""
+    from rendering_engine.easing import spring_out
     choice = index % 4
     if choice == 0:
-        return FadeIn(mob, shift=RIGHT * 0.35, run_time=0.4)
+        return FadeIn(mob, shift=RIGHT * 0.35, run_time=0.45, rate_func=spring_out)
     elif choice == 1:
-        return FadeIn(mob, shift=UP * 0.2, run_time=0.4)
+        return FadeIn(mob, shift=UP * 0.2, run_time=0.45, rate_func=spring_out)
     elif choice == 2:
-        return GrowFromCenter(mob, run_time=0.45)
+        return GrowFromCenter(mob, run_time=0.50, rate_func=spring_out)
     else:
-        return FadeIn(mob, shift=LEFT * 0.15 + UP * 0.1, run_time=0.4)
+        return FadeIn(mob, shift=LEFT * 0.15 + UP * 0.1, run_time=0.45, rate_func=spring_out)
 
 
 def _post_title_flourish(scene, title_mob):

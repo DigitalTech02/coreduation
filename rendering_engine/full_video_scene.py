@@ -358,11 +358,74 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             except Exception as e:
                 logger.debug("Subtitle scheduling skipped: %s", e)
 
+        # Phase 2 trigger: warning pulse for dramatic/urgent scenes.  Plays
+        # AT the scene start (after manifest mark, before content actions)
+        # to set the alarmed tone.  Cross-cutting: works in long-form too.
+        try:
+            _voice_mood = (sc.get("voice_mood") or "").strip().lower()
+            if _voice_mood in ("dramatic", "urgent") or any(
+                (a or {}).get("type") == "shake_element" for a in actions
+            ):
+                from rendering_engine.micro_animations import play_warning_pulse
+                play_warning_pulse(
+                    scene,
+                    position=(0.0, 4.6 if is_shorts else 3.2),
+                    scale=1.1 if is_shorts else 0.7,
+                    duration=0.85,
+                )
+        except Exception as e:
+            logger.debug("Warning pulse skipped: %s", e)
+
         for action_dict in actions:
             action = _rebuild_action(action_dict)
             if action is None:
                 continue
             _dispatch_action(scene, state, action)
+
+        # Phase 1 trigger: confetti burst on scenes that read as a "reward
+        # / payoff / final takeaway" beat.  Cross-cutting: hits long-form
+        # final-takeaway scenes too, not just shorts CTA.  Routed by
+        # voice_mood + scene_id keyword match.
+        try:
+            from rendering_engine.confetti import play_confetti_burst, should_celebrate
+            if should_celebrate(
+                voice_mood=sc.get("voice_mood") or "",
+                scene_id=sc.get("scene_id") or "",
+                narration=narration,
+            ):
+                # Slightly different confetti origin in shorts (mid-canvas)
+                # vs long-form (above the title card).
+                origin = (0.0, 1.5) if is_shorts else (0.0, 2.0)
+                play_confetti_burst(
+                    scene,
+                    origin=origin,
+                    count=52 if is_shorts else 38,
+                    spread_x=4.5 if is_shorts else 6.5,
+                    duration=1.4,
+                )
+        except Exception as e:
+            logger.debug("Confetti burst skipped: %s", e)
+
+        # Phase 2 trigger: success stamp for "secured / verified" payoff
+        # scenes.  Plays AFTER content but before the post-action wait so
+        # it lands on the climax beat.
+        try:
+            sid_lower = (sc.get("scene_id") or "").lower()
+            narration_lower = (narration or "").lower()
+            if any(k in sid_lower for k in ("secured", "verified", "protected", "safe", "done")) \
+               or any(k in narration_lower for k in (
+                   "now you're safe", "your data is protected", "fully encrypted",
+                   "successfully verified",
+               )):
+                from rendering_engine.micro_animations import play_success_stamp
+                play_success_stamp(
+                    scene,
+                    position=(0.0, 1.0 if is_shorts else 0.0),
+                    scale=1.2 if is_shorts else 0.8,
+                    duration=0.95,
+                )
+        except Exception as e:
+            logger.debug("Success stamp skipped: %s", e)
 
         # Last scene of a short: fade out the text card / bullet list FIRST
         # (per the marketing-pillar brief: the CTA arrow must be the only

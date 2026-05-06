@@ -35,7 +35,15 @@ class FullSemanticVideo(MovingCameraScene):
         except Exception:
             ENABLE_THEMED_BACKGROUNDS = True
 
-        if ENABLE_THEMED_BACKGROUNDS:
+        try:
+            from config import ENABLE_MESH_GRADIENT
+        except Exception:
+            ENABLE_MESH_GRADIENT = False
+
+        if ENABLE_MESH_GRADIENT:
+            from rendering_engine.mesh_gradient import apply_mesh_gradient_background
+            apply_mesh_gradient_background(self, category)
+        elif ENABLE_THEMED_BACKGROUNDS:
             apply_themed_background(self, category)
         else:
             self.camera.background_color = BG_COLOR

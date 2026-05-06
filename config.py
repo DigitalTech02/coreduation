@@ -129,6 +129,12 @@ BACKGROUND_PARTICLE_COUNT: int = _int("BACKGROUND_PARTICLE_COUNT", 22)
 ENABLE_AMBIENT_DECOR: bool = _bool("ENABLE_AMBIENT_DECOR", True)
 AMBIENT_DECOR_COUNT: int = _int("AMBIENT_DECOR_COUNT", 6)
 
+# Stripe-style mesh gradient backdrop (3 colored blobs that drift).  Off
+# by default — the existing themed gradient + particle field is the safe
+# baseline.  Enable for a more modern SaaS-product look.  Works in both
+# long-form and shorts pipelines.
+ENABLE_MESH_GRADIENT: bool = _bool("ENABLE_MESH_GRADIENT", False)
+
 # Per-scene keyword burst (large faint background word).
 # DISABLED — explicit user feedback (2026-05-04): the dimmed background word
 # at very large font competes with the actual content on the canvas, even
