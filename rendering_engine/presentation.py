@@ -441,17 +441,23 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
         # Long-form: route through collision-avoidance + card wrap.
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: text sits DIRECTLY on the mood-colored panel (the
-        # background panel IS the visual container).  No dark card chrome
-        # needed — that was the old "small card on dark canvas" model that
-        # we deliberately replaced.  Forces title/body to white-bold for
-        # contrast against the saturated panel color.
+        # Shorts: text sits DIRECTLY on the mood panel.  Force white fill
+        # + dark stroke (acts as a drop shadow / outline) so titles read
+        # clearly on bright panels — neon yellow CTA in particular has
+        # weak white-on-yellow contrast without the stroke.
         from manim import WHITE as _WHITE
         for part in parts:
             try:
                 part.set_color(_WHITE)
+                # Thin dark outline = WCAG-compliant contrast on any
+                # panel color (red, orange, blue, gold).
+                part.set_stroke(color="#000000", width=2.0, opacity=0.55, background=True)
             except Exception:
-                pass
+                # background=True only on Manim VMobjects; fall back.
+                try:
+                    part.set_stroke(color="#000000", width=2.0, opacity=0.55)
+                except Exception:
+                    pass
         group.move_to([0, -0.5, 0])
     state.register(f"text_{action.title or 'block'}", group)
 
@@ -462,16 +468,35 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     else:
         scene.play(_next_title_anim(parts[0], shorts_mode=is_shorts), run_time=0.6)
 
-    # Shorts: glow halo around the title to give it a "highlighted" feel
-    # right after entrance.  Cross-cutting polish from the Phase 2 brief
-    # — long-form gets it via emphasize_text only; shorts gets it on
-    # every show_text_block title for max visible energy.
+    # Shorts polish: glow halo cycles through warning / danger / success /
+    # action colors per scene, NOT the same accent every time.  Combined
+    # with the dark text-stroke (added below) the title both pops AND
+    # has WCAG-readable contrast on bright panel colors like neon yellow.
     if is_shorts and title_mob is not None:
         try:
             from rendering_engine.micro_animations import play_glow_pulse
-            play_glow_pulse(scene, title_mob, color=ACCENT, duration=0.6)
+            halo_color = _shorts_halo_color()
+            play_glow_pulse(scene, title_mob, color=halo_color, duration=0.6)
         except Exception:
             pass
+
+
+# Per-scene halo colors that cycle through the emotional arc.
+_SHORTS_HALO_PALETTE = (
+    "#ffd23f",   # 0: yellow — caution / warning (hook)
+    "#ff3b30",   # 1: red — danger / failure (tension)
+    "#3fdca1",   # 2: green — success / verification (payoff)
+    "#ffcc00",   # 3: gold — action / reward (CTA)
+)
+_halo_cycle_counter = 0
+
+
+def _shorts_halo_color() -> str:
+    """Return the next halo color in the warning→danger→success→action cycle."""
+    global _halo_cycle_counter
+    color = _SHORTS_HALO_PALETTE[_halo_cycle_counter % len(_SHORTS_HALO_PALETTE)]
+    _halo_cycle_counter += 1
+    return color
 
 
 def _spring_or_smooth(is_shorts: bool):
@@ -527,15 +552,24 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     if not is_shorts:
         group = _avoid_collision(scene, state, group)
     else:
-        # Shorts: bullet list sits directly on the mood panel — no dark
-        # card chrome.  Force title to bright accent (cyan-ish white) and
-        # bullets to white for max contrast.
+        # Shorts: bullets sit DIRECTLY on the mood panel — no dark card
+        # chrome (the residual rectangle behind bullets in earlier renders
+        # came from _wrap_in_card which we deliberately skip here).
+        # White fill + dark stroke for contrast on bright panels.
         from manim import WHITE as _WHITE
         try:
             if title_mob is not None:
                 title_mob.set_color(_WHITE)
+                try:
+                    title_mob.set_stroke(color="#000000", width=2.5, opacity=0.55, background=True)
+                except Exception:
+                    title_mob.set_stroke(color="#000000", width=2.5, opacity=0.55)
             for bullet in bullets:
                 bullet.set_color(_WHITE)
+                try:
+                    bullet.set_stroke(color="#000000", width=1.5, opacity=0.55, background=True)
+                except Exception:
+                    bullet.set_stroke(color="#000000", width=1.5, opacity=0.55)
         except Exception:
             pass
         group.move_to([0, -0.5, 0])
@@ -547,7 +581,7 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
         if is_shorts:
             try:
                 from rendering_engine.micro_animations import play_glow_pulse
-                play_glow_pulse(scene, title_mob, color=ACCENT, duration=0.55)
+                play_glow_pulse(scene, title_mob, color=_shorts_halo_color(), duration=0.55)
             except Exception:
                 pass
 

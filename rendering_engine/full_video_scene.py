@@ -296,9 +296,22 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             # conversion impulse on the link-tap moment.
             effective_mood = sc.get("voice_mood") or ""
             if i == len(scenes) - 1:
-                effective_mood = "excited"  # → gold panel via _SHORTS_MOOD_GLOW
+                effective_mood = "excited"  # → gold panel
+
+            # Topic-seeded variation: hash topic+category to pick a
+            # palette variant (0/1/2) and a light-ray angle.  Two shorts
+            # on different topics in the same category will look
+            # distinctly different without losing the mood color story.
+            palette_idx = _topic_palette_index(topic, category)
+            ray_angles = (15.0, 30.0, 42.0)
+            ray_angle = ray_angles[palette_idx]
+
             try:
-                _add_shorts_scene_glow(scene, state, effective_mood)
+                _add_shorts_scene_glow(
+                    scene, state, effective_mood,
+                    palette_index=palette_idx,
+                    light_ray_angle_deg=ray_angle,
+                )
             except Exception as e:
                 logger.debug("Shorts glow skipped for scene %d: %s", i, e)
 
@@ -769,35 +782,56 @@ def _add_shorts_category_badge(scene: Any, state: SceneState, category: str) -> 
     state._categories["__shorts_badge"] = "persistent"
 
 
-# Mood → vivid panel + accent color pair.  The panel fills most of the
-# scene canvas with a saturated color block (infographic style), the
-# accent drives stripes / borders / highlight elements.  Bumped to neon
-# saturation 2026-05-05 — user's reference visuals were vibrant pastels
-# and neons, not muted dark-theme accents.
+# Three palette variants per voice_mood.  Topic/category hash picks one
+# variant per render, so two security-category shorts on different topics
+# look distinctly different without losing the mood-based color story
+# (hooks still feel "danger", payoffs still feel "calm/secure", etc.).
+_SHORTS_MOOD_PALETTES: dict[str, tuple[str, str, str]] = {
+    "hook":       ("#ff2d55", "#e0227a", "#d63384"),  # neon red / crimson / hot pink
+    "dramatic":   ("#ff6b1f", "#e05a00", "#ff3b30"),  # vivid orange / burnt orange / red-orange
+    "urgent":     ("#ff6b1f", "#e05a00", "#ff3b30"),
+    "narrator":   ("#0a84ff", "#5e5ce6", "#00d4ff"),  # bright blue / indigo / cyan
+    "analytical": ("#0a84ff", "#5e5ce6", "#00d4ff"),
+    "calm":       ("#0a84ff", "#3fdca1", "#5e5ce6"),  # bright blue / mint / indigo
+    "excited":    ("#ffcc00", "#ffd23f", "#ff9500"),  # neon gold / soft gold / amber
+}
+
+# Secondary deep colors per palette variant — used for bottom vignette.
+_SHORTS_MOOD_DEEP_PALETTES: dict[str, tuple[str, str, str]] = {
+    "hook":       ("#7a0e2e", "#5a0830", "#4d0a2a"),
+    "dramatic":   ("#7a3210", "#5a2300", "#601515"),
+    "urgent":     ("#7a3210", "#5a2300", "#601515"),
+    "narrator":   ("#06366b", "#1e1b4d", "#003a4d"),
+    "analytical": ("#06366b", "#1e1b4d", "#003a4d"),
+    "calm":       ("#06366b", "#0a4d3a", "#1e1b4d"),
+    "excited":    ("#7a6500", "#5a4500", "#7a4d00"),
+}
+
+
+def _topic_palette_index(topic: str, category: str) -> int:
+    """Hash topic+category to a deterministic 0/1/2 palette variant."""
+    import hashlib
+    h = hashlib.sha256(f"{topic}|{category}".encode("utf-8")).hexdigest()
+    return int(h, 16) % 3
+
+
+# Backwards-compat: legacy single-color maps for code that doesn't yet
+# look up the palette index.  Each maps to variant 0 of the palette.
 _SHORTS_MOOD_GLOW: dict[str, str] = {
-    "hook":       "#ff2d55",   # neon red
-    "dramatic":   "#ff6b1f",   # vivid orange
-    "urgent":     "#ff6b1f",
-    "narrator":   "#0a84ff",   # bright blue
-    "analytical": "#0a84ff",
-    "calm":       "#0a84ff",
-    "excited":    "#ffcc00",   # neon gold (CTA energy)
+    k: v[0] for k, v in _SHORTS_MOOD_PALETTES.items()
 }
-
-# Secondary fill — paints the panel's gradient bottom + light-ray streaks.
-# Slightly desaturated so the gradient creates depth rather than flatness.
 _SHORTS_MOOD_GLOW_DEEP: dict[str, str] = {
-    "hook":       "#7a0e2e",
-    "dramatic":   "#7a3210",
-    "urgent":     "#7a3210",
-    "narrator":   "#06366b",
-    "analytical": "#06366b",
-    "calm":       "#06366b",
-    "excited":    "#7a6500",
 }
 
 
-def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> None:
+def _add_shorts_scene_glow(
+    scene: Any,
+    state: SceneState,
+    voice_mood: str,
+    *,
+    palette_index: int = 0,
+    light_ray_angle_deg: float = 25.0,
+) -> None:
     """Mood-keyed FULL-BLEED panel + diagonal light rays.
 
     Replaces the previous "small card on dark canvas" model with a vivid
@@ -813,11 +847,18 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
       y=-4.0..+5.5  full-bleed mood panel with gradient + light rays
       y=-7..-4      subtitle + CTA zone — left empty
     """
-    color = _SHORTS_MOOD_GLOW.get((voice_mood or "").strip().lower())
-    deep = _SHORTS_MOOD_GLOW_DEEP.get((voice_mood or "").strip().lower(), "#000000")
-    if not color:
-        logger.warning("Shorts glow: no color for voice_mood=%r — skipping", voice_mood)
+    mood_key = (voice_mood or "").strip().lower()
+    palette = _SHORTS_MOOD_PALETTES.get(mood_key)
+    deep_palette = _SHORTS_MOOD_DEEP_PALETTES.get(mood_key)
+    if not palette:
+        logger.warning("Shorts glow: no palette for voice_mood=%r — skipping", voice_mood)
         return
+
+    # Topic-seeded palette variant — same topic always picks the same
+    # variant (deterministic), different topics feel visually distinct.
+    pi = palette_index % 3
+    color = palette[pi]
+    deep = (deep_palette or palette)[pi]
 
     # Loud log — we've debugged 6+ commits trying to make this panel
     # visible.  This warning confirms the function runs and what color
@@ -865,8 +906,9 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     slab.set_z_index(-9)
     layers.append(slab)
 
-    # Layer 3 — diagonal white light-ray streaks for energy.  Sit ABOVE
-    # the panel (z=-47) so they read clearly against the saturated color.
+    # Layer 3 — diagonal white light-ray streaks for energy.  Angle is
+    # now dynamic per-render (topic hash → 15-45°) so two shorts on
+    # different topics don't share identical line angles.
     import math
     for i, (x_offset, y_offset, length) in enumerate([
         (-2.5,  3.0, 11.0),
@@ -874,7 +916,7 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
         ( 2.0,  2.0, 11.0),
         (-1.0, -1.5, 11.0),
     ]):
-        angle = math.radians(25)
+        angle = math.radians(light_ray_angle_deg)
         dx = (length / 2) * math.cos(angle)
         dy = (length / 2) * math.sin(angle)
         ray = _Line(
@@ -886,12 +928,26 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
         ray.set_z_index(-8)
         layers.append(ray)
 
-    # Layer 4 — accent corner bloom top-right.
+    # Layer 4 — accent corner bloom.  Position varies per palette index
+    # for visual variety: variant 0 = top-right, variant 1 = top-left,
+    # variant 2 = mid-right.
+    blob_positions = [(3.0, 5.6, 0), (-3.0, 5.6, 0), (3.4, 1.5, 0)]
+    bx, by, bz = blob_positions[palette_index % 3]
     blob = Circle(radius=1.8, color="#ffffff", stroke_width=0)
-    blob.set_fill("#ffffff", opacity=0.16)
-    blob.move_to([3.0, 5.6, 0])
+    blob.set_fill("#ffffff", opacity=0.18)
+    blob.move_to([bx, by, bz])
     blob.set_z_index(-8)
     layers.append(blob)
+
+    # Layer 5 — GLOSSY SHEEN.  Wide, short, semi-transparent white
+    # rectangle near the top of the panel that reads as "gloss reflecting
+    # off the surface".  Adds a premium-product feel without competing
+    # with content (sits at z=-7, behind text but above panel).
+    sheen = _Rect(width=8.6, height=2.6, color="#ffffff", stroke_width=0)
+    sheen.set_fill("#ffffff", opacity=0.10)
+    sheen.move_to([0, 5.0, 0])
+    sheen.set_z_index(-7)
+    layers.append(sheen)
 
     # Add each layer DIRECTLY to the scene — no VGroup wrapping (VGroup's
     # single z_index overrides child z_indices for scene sorting).
