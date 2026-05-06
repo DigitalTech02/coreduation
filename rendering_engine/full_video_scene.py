@@ -809,11 +809,11 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
 
     layers: list = []
 
-    # Layer 1 — the big mood panel.  Now FULL-CANVAS and FULLY OPAQUE so
-    # it actually replaces the dark category-themed gradient as the visible
-    # background.  Previous 0.85-opacity 7.6x10.5 panel layered on dark-red
-    # gradient just produced "slightly less dark red" — invisible as a
-    # color shift.  Now the panel IS the canvas color.
+    # Layer 1 — the big mood panel.  Full-canvas, fully opaque, NO darker
+    # overlays on top (previous "inner vignette" + "bottom slabs" layers
+    # were actively painting the deeper-mood color back over the neon
+    # panel, neutralizing the vibrant color into a dark tint — visible in
+    # frame review as "dark canvas", not "vibrant red panel").
     panel = _RR(
         width=8.4, height=14.6,   # slightly larger than 8x14.222 frame so edges aren't clipped
         corner_radius=0.0,        # no rounded corners on a full-bleed panel
@@ -822,32 +822,21 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     )
     panel.move_to([0, 0, 0])
     panel.set_z_index(-50)
+    panel.set_fill(color, opacity=1.0)  # belt + suspenders against opacity-multiplier quirks
     layers.append(panel)
 
-    # Layer 1b — subtle inner glow / vignette using the deep mood color
-    # painted as a slightly inset rounded rect on top of the panel.
-    # Adds visual depth without breaking the color identity.
-    inner = _RR(
-        width=7.4, height=12.8,
-        corner_radius=0.32,
+    # Layer 2 — single subtle bottom darken (was 3 stacked slabs at high
+    # opacity which murdered the panel color in the bottom half).  One
+    # gentle fade slab at low opacity to give the bottom edge a slight
+    # vignette without killing the saturation.
+    slab = _Rect(
+        width=8.4, height=3.5,
         color=deep, stroke_width=0,
-        fill_color=deep, fill_opacity=0.32,
     )
-    inner.move_to([0, 0, 0])
-    inner.set_z_index(-49)
-    layers.append(inner)
-
-    # Layer 2 — bottom gradient slabs in deeper mood color.  Stacked at
-    # the bottom of the panel for vertical depth.
-    for i, opacity in enumerate([0.35, 0.50, 0.65]):
-        slab = _Rect(
-            width=8.2, height=2.0 + i * 0.6,
-            color=deep, stroke_width=0,
-        )
-        slab.set_fill(deep, opacity=opacity)
-        slab.move_to([0, -5.5 + i * 0.5, 0])
-        slab.set_z_index(-48)
-        layers.append(slab)
+    slab.set_fill(deep, opacity=0.20)
+    slab.move_to([0, -5.4, 0])
+    slab.set_z_index(-48)
+    layers.append(slab)
 
     # Layer 3 — diagonal white light-ray streaks for energy.  Sit ABOVE
     # the panel (z=-47) so they read clearly against the saturated color.
@@ -878,12 +867,13 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
     layers.append(blob)
 
     layer_group = VGroup(*layers)
-    try:
-        layer_group.set_opacity(0.0)
-        scene.add(layer_group)
-        scene.play(FadeIn(layer_group), run_time=0.40)
-    except Exception:
-        scene.add(layer_group)
+    # Add immediately at FULL opacity — no FadeIn dance.  The previous
+    # set_opacity(0.0) + FadeIn(layer_group) sequence was a candidate
+    # cause of the panel rendering at 0% opacity (Manim's opacity
+    # multiplier on a nested VGroup of mixed mobjects can be unreliable).
+    # Removing that animation guarantees the panel is fully painted from
+    # the first frame of the scene.
+    scene.add(layer_group)
 
     state.objects["__shorts_glow"] = layer_group
     state._categories["__shorts_glow"] = "shorts_chrome"
