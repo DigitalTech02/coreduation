@@ -375,10 +375,12 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
         # Shorts: word-wrap the title BEFORE creating the Text mobject so
         # we never trigger Manim's set_width() auto-shrink (which scales
         # the FONT down, defeating the whole point of a 112pt headline).
-        # Long-form keeps the original behavior.
+        # Long-form keeps the original behavior.  22 chars/line at 112pt
+        # ≈ 1.5 lines for typical titles — fits the canvas without making
+        # the text feel like a thin column.
         title_text = action.title
         if is_shorts:
-            title_text = _word_wrap_for_shorts(title_text, max_chars_per_line=18)
+            title_text = _word_wrap_for_shorts(title_text, max_chars_per_line=22)
         title_mob = Text(
             title_text, font_size=title_size, color=PRIMARY, weight="BOLD",
         )
@@ -393,7 +395,11 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     if action.body:
         body_text = action.body
         if is_shorts:
-            body_text = _word_wrap_for_shorts(body_text, max_chars_per_line=24)
+            # 32 chars/line at 67pt body ≈ 4-5 words per line.  Was 24
+            # which produced "TLS handshake sets / up secret codes / before
+            # your data ever leaves" — 2-3 words per line, looked like a
+            # poem column instead of an infographic body.
+            body_text = _word_wrap_for_shorts(body_text, max_chars_per_line=32)
         body = Text(
             body_text, font_size=body_size, color=MUTED,
             line_spacing=1.4, weight="MEDIUM" if is_shorts else "NORMAL",

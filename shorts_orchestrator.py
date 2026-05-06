@@ -250,10 +250,45 @@ def _split_at_natural_break(text: str, max_title_chars: int = 35) -> tuple[str, 
     return s, ""
 
 
+_MAX_SHORTS_BODY_CHARS = 110
+
+
+def _trim_body_to_one_sentence(body: str, max_chars: int = _MAX_SHORTS_BODY_CHARS) -> str:
+    """Cap a verbose body at the first sentence boundary, max ~110 chars.
+
+    The LLM frequently emits 200-char paragraphs into ``body`` which then
+    wrap to 9 narrow lines on a 9:16 canvas — reads as "wall of text",
+    not "infographic".  Cap to one short sentence.
+    """
+    s = (body or "").strip()
+    if len(s) <= max_chars:
+        return s
+
+    # Try to end at a sentence boundary within max_chars.
+    cutoff = -1
+    for i, ch in enumerate(s[:max_chars + 20]):
+        if ch in ".!?" and (i + 1 == len(s) or s[i + 1] == " "):
+            cutoff = i + 1
+            break
+    if 30 <= cutoff <= max_chars + 20:
+        return s[:cutoff].strip()
+
+    # Otherwise truncate at last word boundary before max_chars.
+    truncated = s[:max_chars]
+    last_space = truncated.rfind(" ")
+    if last_space > 30:
+        truncated = truncated[:last_space]
+    return truncated.rstrip(",;:- ") + "..."
+
+
 def _split_long_titles(data: dict) -> dict:
-    """Walk every show_text_block action; if title > 40 chars and body empty,
-    split into (title, body) at a natural break.  Prevents the renderer's
-    auto-shrink from compressing big-font titles into 30pt mush.
+    """Walk every show_text_block; split long titles, trim long bodies.
+
+    1.  Title > 40 chars AND body empty → split at natural break point.
+        Prevents the renderer's auto-shrink from compressing big-font
+        titles into 30pt mush.
+    2.  Body > 110 chars → trim to first sentence (or word boundary).
+        Prevents 200-char paragraphs from wrapping to 9 narrow lines.
     """
     for scene in data.get("scenes", []):
         for act in scene.get("actions", []) or []:
@@ -261,19 +296,32 @@ def _split_long_titles(data: dict) -> dict:
                 continue
             title = (act.get("title") or "").strip()
             body = (act.get("body") or "").strip()
-            if not title or body:  # nothing to split, or body already populated
-                continue
-            if len(title) <= 40:
-                continue
-            new_title, new_body = _split_at_natural_break(title)
-            if new_body:
-                act["title"] = new_title
-                act["body"] = new_body
-                logger.info(
-                    "Split long title in scene '%s': %r → %r + %r",
-                    scene.get("scene_id", "?"),
-                    title[:40], new_title[:40], new_body[:40],
-                )
+
+            # Split long title into title + body
+            if title and not body and len(title) > 40:
+                new_title, new_body = _split_at_natural_break(title)
+                if new_body:
+                    act["title"] = new_title
+                    act["body"] = new_body
+                    title = new_title
+                    body = new_body
+                    logger.info(
+                        "Split long title in scene '%s': %r → %r + %r",
+                        scene.get("scene_id", "?"),
+                        (title + " " + body)[:40],
+                        new_title[:40], new_body[:40],
+                    )
+
+            # Trim long body to one sentence
+            if body and len(body) > _MAX_SHORTS_BODY_CHARS:
+                trimmed = _trim_body_to_one_sentence(body)
+                if trimmed != body:
+                    act["body"] = trimmed
+                    logger.info(
+                        "Trimmed long body in scene '%s' (%d → %d chars)",
+                        scene.get("scene_id", "?"), len(body), len(trimmed),
+                    )
+
     return data
 
 

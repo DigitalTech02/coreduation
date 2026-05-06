@@ -746,35 +746,48 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
 
     layers: list = []
 
-    # Layer 1 — the big mood panel.  Rounded edges for that infographic
-    # "card" feel.  Fill at 0.85 so the color genuinely dominates the
-    # canvas (was 0.55 — too faint, the panel was barely visible against
-    # the dark gradient background per user frame review).
+    # Layer 1 — the big mood panel.  Now FULL-CANVAS and FULLY OPAQUE so
+    # it actually replaces the dark category-themed gradient as the visible
+    # background.  Previous 0.85-opacity 7.6x10.5 panel layered on dark-red
+    # gradient just produced "slightly less dark red" — invisible as a
+    # color shift.  Now the panel IS the canvas color.
     panel = _RR(
-        width=7.6, height=10.5,
-        corner_radius=0.40,
-        color=color, stroke_width=6,
-        fill_color=color, fill_opacity=0.85,
+        width=8.4, height=14.6,   # slightly larger than 8x14.222 frame so edges aren't clipped
+        corner_radius=0.0,        # no rounded corners on a full-bleed panel
+        color=color, stroke_width=0,
+        fill_color=color, fill_opacity=1.0,
     )
-    panel.move_to([0, 0.75, 0])
+    panel.move_to([0, 0, 0])
     panel.set_z_index(-50)
     layers.append(panel)
 
-    # Layer 2 — bottom gradient overlay using the deeper mood color.
-    # Stack 3 progressively darker rectangles for vertical depth.
-    for i, opacity in enumerate([0.30, 0.45, 0.60]):
+    # Layer 1b — subtle inner glow / vignette using the deep mood color
+    # painted as a slightly inset rounded rect on top of the panel.
+    # Adds visual depth without breaking the color identity.
+    inner = _RR(
+        width=7.4, height=12.8,
+        corner_radius=0.32,
+        color=deep, stroke_width=0,
+        fill_color=deep, fill_opacity=0.32,
+    )
+    inner.move_to([0, 0, 0])
+    inner.set_z_index(-49)
+    layers.append(inner)
+
+    # Layer 2 — bottom gradient slabs in deeper mood color.  Stacked at
+    # the bottom of the panel for vertical depth.
+    for i, opacity in enumerate([0.35, 0.50, 0.65]):
         slab = _Rect(
-            width=7.4, height=2.0 + i * 0.6,
+            width=8.2, height=2.0 + i * 0.6,
             color=deep, stroke_width=0,
         )
         slab.set_fill(deep, opacity=opacity)
-        slab.move_to([0, -3.5 + i * 0.4, 0])
-        slab.set_z_index(-49)
+        slab.move_to([0, -5.5 + i * 0.5, 0])
+        slab.set_z_index(-48)
         layers.append(slab)
 
-    # Layer 3 — diagonal light-ray streaks for energy.  4 lines at
-    # increasing opacity, tilted at 25°.  Bumped opacity 0.18-0.33 →
-    # 0.45-0.65 so they actually read on the panel.
+    # Layer 3 — diagonal white light-ray streaks for energy.  Sit ABOVE
+    # the panel (z=-47) so they read clearly against the saturated color.
     import math
     for i, (x_offset, y_offset, length) in enumerate([
         (-2.5,  3.0, 11.0),
@@ -788,17 +801,17 @@ def _add_shorts_scene_glow(scene: Any, state: SceneState, voice_mood: str) -> No
         ray = _Line(
             start=[x_offset - dx, y_offset - dy, 0],
             end=[x_offset + dx, y_offset + dy, 0],
-            color="#ffffff", stroke_width=3 + i * 0.7,
+            color="#ffffff", stroke_width=4 + i * 0.8,
         )
-        ray.set_opacity(0.18 + i * 0.06)
-        ray.set_z_index(-51)
+        ray.set_opacity(0.20 + i * 0.06)
+        ray.set_z_index(-47)
         layers.append(ray)
 
-    # Layer 4 — accent corner blob top-right for visual asymmetry.
-    blob = Circle(radius=1.6, color="#ffffff", stroke_width=0)
-    blob.set_fill("#ffffff", opacity=0.18)
-    blob.move_to([3.0, 5.4, 0])
-    blob.set_z_index(-48)
+    # Layer 4 — accent corner bloom top-right.
+    blob = Circle(radius=1.8, color="#ffffff", stroke_width=0)
+    blob.set_fill("#ffffff", opacity=0.20)
+    blob.move_to([3.0, 5.6, 0])
+    blob.set_z_index(-47)
     layers.append(blob)
 
     layer_group = VGroup(*layers)
