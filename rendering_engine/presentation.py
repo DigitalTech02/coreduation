@@ -504,7 +504,8 @@ def _spring_or_smooth(is_shorts: bool):
     if is_shorts:
         from rendering_engine.easing import spring_out
         return spring_out
-    return None  # let Manim use its default
+    from manim import smooth
+    return smooth
 
 
 # ---------------------------------------------------------------------------
