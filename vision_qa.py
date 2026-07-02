@@ -221,3 +221,196 @@ def run_vision_qa(
 def has_blocking_failures(issues: list[FrameIssue]) -> bool:
     """Return True if any issue is severity='fail' (worth re-rendering)."""
     return any(i.severity == "fail" for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Track 4B — per-scene structured QA
+#
+# Samples one frame per scene (mirrors frame_validator's sampling) and asks
+# GPT-4o vision for a structured verdict that includes an actionable
+# `suggestion` field. The suggestion is what 4C's auto-fix loop uses to
+# regenerate just the failed scenes — it has to be specific enough that the
+# script-revision LLM call can act on it.
+# ---------------------------------------------------------------------------
+
+
+_SCENE_QA_PROMPT = (
+    "You are a strict QA reviewer for educational explainer videos at 1280x720.\n"
+    "Given ONE sampled frame from a specific scene, identify any visual issues "
+    "that hurt comprehension.\n"
+    "\n"
+    "Issue types:\n"
+    "  - blank: canvas is empty or mostly empty\n"
+    "  - overlap: text/shapes overlap each other\n"
+    "  - cutoff: content clipped at edge\n"
+    "  - overflow: text overflows its container\n"
+    "  - illegible: text too small or low contrast\n"
+    "  - duplicate: same logical element appears twice (rare but real)\n"
+    "  - misaligned: layout looks off-balance or chaotic\n"
+    "\n"
+    "Reply in strict JSON:\n"
+    "{\n"
+    "  \"severity\": \"ok\" | \"warn\" | \"fail\",\n"
+    "  \"issues\": [type strings from above],\n"
+    "  \"description\": \"<one sentence>\",\n"
+    "  \"suggestion\": \"<actionable change to the scene's actions, "
+    "e.g. 'add create_node for the cast', 'shrink the bullet list to 3 items', "
+    "'remove the duplicate auth_server'. Empty string if severity=ok.\"\n"
+    "}\n"
+    "\n"
+    "Use 'ok' for no issues, 'warn' for cosmetic issues, "
+    "'fail' for issues that hurt comprehension and warrant a re-render."
+)
+
+
+@dataclass
+class SceneQAFinding:
+    """Per-scene structured QA verdict."""
+
+    scene_id: str
+    timestamp: float
+    severity: str  # "ok" | "warn" | "fail"
+    issues: list[str]
+    description: str
+    suggestion: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _scene_starts_for_qa(scenes: list[dict], intro_offset: float = 2.5) -> list[float]:
+    """Same arithmetic as frame_validator._compute_scene_starts."""
+    SCENE_GAP_SECONDS = 0.15
+    starts: list[float] = []
+    cursor = intro_offset
+    for s in scenes:
+        starts.append(cursor)
+        dur = float(s.get("audio_duration") or s.get("estimated_duration") or 10.0)
+        pause = float(s.get("pause_after") or 0.0)
+        cursor += dur + SCENE_GAP_SECONDS + pause
+    return starts
+
+
+def _qa_scene_frame(client: Any, model: str, frame_path: Path,
+                    scene_id: str, ts: float) -> SceneQAFinding:
+    """Send one scene-frame to GPT-4o vision. Returns structured verdict."""
+    try:
+        with open(frame_path, "rb") as f:
+            img_bytes = f.read()
+        b64 = base64.b64encode(img_bytes).decode("ascii")
+
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SCENE_QA_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text",
+                         "text": f"Scene id: {scene_id} (frame at t={ts:.1f}s)."},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    ],
+                },
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=300,
+        )
+        raw = completion.choices[0].message.content or "{}"
+        data = json.loads(raw)
+        return SceneQAFinding(
+            scene_id=scene_id,
+            timestamp=ts,
+            severity=str(data.get("severity", "ok")).lower(),
+            issues=list(data.get("issues") or []),
+            description=str(data.get("description") or ""),
+            suggestion=str(data.get("suggestion") or ""),
+        )
+    except Exception as e:
+        logger.warning("Scene QA error for %s @ t=%.1f: %s", scene_id, ts, e)
+        return SceneQAFinding(
+            scene_id=scene_id, timestamp=ts, severity="ok",
+            issues=[], description=f"qa_error: {e}", suggestion="",
+        )
+
+
+def run_scene_qa(
+    video_path: str,
+    scenes: list[dict],
+    report_path: str | None = None,
+) -> list[SceneQAFinding]:
+    """Run per-scene structured QA. Returns one finding per scene.
+
+    Gated by ``ENABLE_SCENE_QA`` env var (separate from ENABLE_VISION_QA so
+    each can be toggled independently). Costs ~$0.01 per scene.
+    """
+    from openai import OpenAI
+
+    enable = os.getenv("ENABLE_SCENE_QA", "false").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    if not enable:
+        logger.info("Scene QA disabled (set ENABLE_SCENE_QA=true to enable).")
+        return []
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("OPENAI_API_KEY not set; skipping scene QA")
+        return []
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        logger.warning("ffmpeg/ffprobe not found; skipping scene QA")
+        return []
+
+    video_duration = _video_duration(video_path)
+    if video_duration <= 0:
+        return []
+
+    model = os.getenv("VISION_QA_MODEL", "gpt-4o")
+    client = OpenAI(api_key=api_key)
+    scene_starts = _scene_starts_for_qa(scenes)
+
+    findings: list[SceneQAFinding] = []
+    work = Path(tempfile.mkdtemp(prefix="scene_qa_"))
+    try:
+        for i, scene in enumerate(scenes):
+            sid = scene.get("scene_id", f"scene_{i}")
+            start = scene_starts[i]
+            end = scene_starts[i + 1] if i + 1 < len(scene_starts) else video_duration
+            # Sample at 60% into the scene — past fade-ins, before scene-end fade.
+            ts = start + max(1.5, (end - start) * 0.60)
+            if ts >= video_duration:
+                logger.info("Scene QA: skipping %s (past video end)", sid)
+                continue
+
+            frame_path = work / f"{i:03d}_{sid}.jpg"
+            res = subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{ts:.2f}", "-i", video_path,
+                 "-frames:v", "1", "-q:v", "3", str(frame_path)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if res.returncode != 0 or not frame_path.exists():
+                continue
+
+            finding = _qa_scene_frame(client, model, frame_path, sid, ts)
+            findings.append(finding)
+            if finding.severity in ("warn", "fail"):
+                logger.info("Scene QA [%s] %s @ %.1fs: %s — %s",
+                            finding.severity.upper(), sid, ts,
+                            ",".join(finding.issues), finding.suggestion)
+
+        if report_path:
+            Path(report_path).write_text(
+                json.dumps([f.to_dict() for f in findings], indent=2),
+                encoding="utf-8",
+            )
+            logger.info("Scene QA report -> %s", report_path)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    return findings
+
+
+def scene_qa_failures(findings: list[SceneQAFinding]) -> list[SceneQAFinding]:
+    """Return only the findings worth a re-render (severity=fail)."""
+    return [f for f in findings if f.severity == "fail"]

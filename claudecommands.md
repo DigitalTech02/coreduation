@@ -13,7 +13,7 @@ Claude Code is Anthropic's official CLI tool that lets you interact with Claude 
 claude
 
 # Start with a specific model
-claude --model claude-opus-4-6
+claude --model claude-opus-4-7
 claude --model claude-sonnet-4-6
 claude --model claude-haiku-4-5-20251001
 ```
@@ -24,7 +24,7 @@ claude --model claude-haiku-4-5-20251001
 
 | Model | ID | Best For |
 |---|---|---|
-| **Opus 4.6** | `claude-opus-4-6` | Complex reasoning, architecture, hard bugs |
+| **Opus 4.7** | `claude-opus-4-7` | Complex reasoning, architecture, hard bugs (1M-context variant: `claude-opus-4-7[1m]`) |
 | **Sonnet 4.6** | `claude-sonnet-4-6` | Daily coding, refactoring, explanations (recommended default) |
 | **Haiku 4.5** | `claude-haiku-4-5-20251001` | Quick questions, simple edits, fast lookups |
 
@@ -143,7 +143,7 @@ A project-level config file (`.claude/` directory or `CLAUDE.md` at project root
 claude --print "What does main.py do?"
 
 # Start with Opus for a hard task
-claude --model claude-opus-4-6
+claude --model claude-opus-4-7
 
 # Verbose mode for debugging
 claude --verbose

@@ -38,3 +38,9 @@ npm run studio
 
 Triggered by `ENABLE_REMOTION_CHROME=true` in the Python `.env`.  Falls back
 to Manim-rendered branding when disabled or when `npm`/`node` aren't available.
+
+> **Default is OFF as of Track 5 (May 2026):** Manim already renders an intro
+> card + title card + outro card inside `final_semantic.mp4` via
+> `play_intro_card` / `play_outro_card` in the scene runner. Layering Remotion
+> chrome on top duplicated both ends of every video. Re-enable only when you
+> have suppressed the Manim intro/outro (e.g. via a custom build).

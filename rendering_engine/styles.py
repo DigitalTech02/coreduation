@@ -96,8 +96,18 @@ ICON_SCALE = 0.55
 # Packet animation
 # ---------------------------------------------------------------------------
 PACKET_WIDTH = 1.2
+PACKET_MAX_WIDTH = 3.0  # Auto-grow cap when label is long; text scales down past this
 PACKET_HEIGHT = 0.45
 PACKET_SPEED_BASE = 2.0  # Manim units per second
+# Floor + ceiling on packet travel duration regardless of distance.
+# distance/speed alone: a 2-unit hop is over in 1s (too snappy to read)
+# and a 10-unit hop drags 5s.  Clamp keeps both feeling tracked.  User
+# feedback bumped the floor twice — 1.6s still felt "really fast" because
+# fade-in/out steal ~0.3s at each end, leaving only ~1s of actual travel.
+# 2.6s gives the eye time to lock onto the moving rectangle, follow it
+# across the connection line, and read its label before it disappears.
+PACKET_DURATION_MIN = 2.6
+PACKET_DURATION_MAX = 4.0
 
 # ---------------------------------------------------------------------------
 # Connection
@@ -291,6 +301,33 @@ def make_glow(mobject, color=None, scale: float = GLOW_SCALE, opacity: float = G
     return VGroup(glow, mobject)
 
 
+def make_isometric_shadow(mobject, depth: float = 0.18, layers: int = 3,
+                           opacity: float = 0.22) -> VGroup:
+    """Stack *layers* dark offset copies behind *mobject* for a 3D-card look.
+
+    Each successive copy shifts further down-right (south-east), producing
+    the classic stacked-card / extruded-block illusion without needing a
+    real ThreeDScene.  Returns ``VGroup(*shadows, original)`` so the
+    shadows render behind the original.
+    """
+    try:
+        from config import ENABLE_ISOMETRIC_SHADOW
+    except Exception:
+        ENABLE_ISOMETRIC_SHADOW = True
+    if not ENABLE_ISOMETRIC_SHADOW:
+        return VGroup(mobject)
+
+    shadows = []
+    for i in range(1, max(1, layers) + 1):
+        s = mobject.copy()
+        s.set_color(SHADOW_COLOR)
+        s.set_fill(SHADOW_COLOR, opacity=opacity * (1.0 - (i - 1) * 0.25))
+        s.set_stroke(width=0)
+        s.shift([depth * i, -depth * i, 0])
+        shadows.append(s)
+    return VGroup(*shadows, mobject)
+
+
 # ---------------------------------------------------------------------------
 # Safe area — usable rendering area excluding topic header & subtitle zones
 # ---------------------------------------------------------------------------
@@ -303,6 +340,61 @@ SAFE_AREA_RIGHT = 6.5
 # middle 70% of the safe area, reserving top/bottom 15% for titles/text.
 DIAGRAM_ZONE_TOP = 2.1
 DIAGRAM_ZONE_BOTTOM = -1.7
+
+
+# ---------------------------------------------------------------------------
+# Layout zones — explicit Y-band partitioning of the 720p canvas
+#
+# Manim coordinate space: y in [-4, +4]. Each zone is (y_min, y_max).
+# Renderers MUST place their output inside the zone matching their role and
+# never bleed across boundaries.
+# ---------------------------------------------------------------------------
+HEADER_ZONE = (3.3, 3.95)      # Persistent topic header (small, top edge)
+TITLE_ZONE = (2.35, 3.2)       # Scene-level title text
+CONTENT_ZONE = (-1.7, 2.3)     # Diagrams, tables, code blocks, body text
+FOOTER_ZONE = (-3.95, -2.5)    # Subtitles, watermark, progress bar
+
+# Minimum font sizes for YouTube readability at 720p.
+# Below MIN_FONT_LABEL is allowed only for tertiary annotations.
+MIN_FONT_TITLE = 36
+MIN_FONT_BODY = 22
+MIN_FONT_LABEL = 18
+MIN_FONT_CODE = 20
+
+
+def is_in_zone(y_min: float, y_max: float, zone: tuple[float, float]) -> bool:
+    """Return True iff [y_min, y_max] sits fully inside *zone*."""
+    return y_min >= zone[0] and y_max <= zone[1]
+
+
+def clamp_to_zone(mobject, zone: tuple[float, float], padding: float = 0.05):
+    """Shift *mobject* vertically so its bbox sits inside *zone*.
+
+    If the mobject is taller than the zone, anchor its top to the zone top.
+    """
+    z_lo, z_hi = zone
+    bottom = mobject.get_bottom()[1]
+    top = mobject.get_top()[1]
+    height = top - bottom
+
+    if height > (z_hi - z_lo):
+        # Too tall: anchor top to zone top
+        delta = (z_hi - padding) - top
+    elif top > z_hi - padding:
+        delta = (z_hi - padding) - top
+    elif bottom < z_lo + padding:
+        delta = (z_lo + padding) - bottom
+    else:
+        return mobject
+
+    from manim import UP
+    mobject.shift(delta * UP)
+    return mobject
+
+
+def zones_overlap(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    """Return True iff Y-bands *a* and *b* overlap."""
+    return not (a[1] <= b[0] or b[1] <= a[0])
 
 
 def apply_sheen(mobject, factor: float = SHEEN_FACTOR, direction=None):

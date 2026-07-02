@@ -46,6 +46,27 @@ def back_ease_out(t: float, overshoot: float = 1.70158) -> float:
     return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
 
 
+def spring_out(t: float, damping: float = 0.55, stiffness: float = 12.0) -> float:
+    """Spring-physics ease-out with overshoot then settle.
+
+    Mimics Framer Motion / iOS spring transitions — the value goes past
+    1.0 (overshoots) then oscillates back to 1.0 with damping.  Produces
+    an "alive, bouncy" feel for card and icon entrances vs the flat
+    cubic_ease_out arrival.
+
+    *damping*: lower = more bounce (0.4–0.7 typical)
+    *stiffness*: higher = faster settle (8–16 typical)
+    """
+    if t <= 0.0:
+        return 0.0
+    if t >= 1.0:
+        return 1.0
+    # Damped sinusoid model: 1 - exp(-d*s*t) * cos(s*(1-d)*t)
+    decay = math.exp(-damping * stiffness * t)
+    oscillation = math.cos(stiffness * (1.0 - damping) * t)
+    return 1.0 - decay * oscillation
+
+
 def smooth_step(t: float) -> float:
     return t * t * (3 - 2 * t)
 

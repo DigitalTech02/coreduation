@@ -257,3 +257,76 @@ class TestContainment:
     def test_children_of_nonexistent(self):
         state = SceneState()
         assert state.children_of("nonexistent") == []
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for vacant-rect search and persistence
+# ---------------------------------------------------------------------------
+
+class TestVacantSearchEdges:
+    def test_find_vacant_rect_skips_too_small_gaps(self):
+        """Request a rect taller than any gap between obstacles → fall back
+        cleanly (return None or the largest-gap fallback, but never crash)."""
+        state = SceneState()
+        # Blanket the safe area (-2.5..2.9) with stripes leaving only thin gaps
+        state.register("top", MockMobject(-6.5, 6.5, 2.5, 2.9))
+        state.register("upper", MockMobject(-6.5, 6.5, 1.0, 1.5))
+        state.register("mid", MockMobject(-6.5, 6.5, -0.5, 0.0))
+        state.register("low", MockMobject(-6.5, 6.5, -2.0, -1.5))
+        # Largest gap is ~1.5 units. Request 3.0 — should not find one.
+        result = state.find_vacant_rect(2.0, 3.0)
+        assert result is None
+
+    def test_find_vacant_y_falls_back_to_center(self):
+        """When fully blocked, find_vacant_y returns the safe-area center
+        (the documented fallback) rather than raising."""
+        state = SceneState()
+        # Block the entire safe area top to bottom
+        state.register("blocker", MockMobject(-6.5, 6.5, -2.5, 2.9))
+        y = state.find_vacant_y(height=3.0)
+        # Should be a float (the fallback midpoint)
+        assert isinstance(y, float)
+
+    def test_persistent_bbox_none_when_empty(self):
+        state = SceneState()
+        assert state.persistent_bbox() is None
+
+    def test_persistent_bbox_none_when_only_presentation(self):
+        state = SceneState()
+        state.register("text", MockMobject(0, 5, 0, 5), category="presentation")
+        assert state.persistent_bbox() is None
+
+    def test_overlaps_any_margin_inflates_query(self):
+        """A margin parameter inflates the query box — useful for collision
+        avoidance with breathing room."""
+        from rendering_engine.engine import BBox
+        state = SceneState()
+        state.register("a", MockMobject(0, 1, 0, 1))
+        # Query 0.2 units away — no overlap at margin=0
+        query = BBox(1.2, 2.0, 0, 1)
+        assert "a" not in state.overlaps_any(query)
+        # With margin=0.3 the gap closes
+        assert "a" in state.overlaps_any(query, margin=0.3)
+
+
+class TestDiagramZones:
+    """The DIAGRAM_ZONE_TOP / _BOTTOM constants drive avoid_overlap fallbacks
+    in engine.py. They're load-bearing — accidentally narrowing them would
+    break overlay placement on the active branch."""
+
+    def test_zones_are_inside_safe_area(self):
+        from rendering_engine.styles import (
+            DIAGRAM_ZONE_BOTTOM, DIAGRAM_ZONE_TOP,
+            SAFE_AREA_BOTTOM, SAFE_AREA_TOP,
+        )
+        assert SAFE_AREA_BOTTOM < DIAGRAM_ZONE_BOTTOM < DIAGRAM_ZONE_TOP < SAFE_AREA_TOP
+
+    def test_zones_leave_room_for_overlays(self):
+        """avoid_overlap requires top/bottom reserved bands of at least 0.3
+        units for the scaled-down overlay path to engage."""
+        from rendering_engine.styles import (
+            DIAGRAM_ZONE_BOTTOM, DIAGRAM_ZONE_TOP,
+            SAFE_AREA_BOTTOM, SAFE_AREA_TOP,
+        )
+        assert SAFE_AREA_TOP - DIAGRAM_ZONE_TOP >= 0.3
+        assert DIAGRAM_ZONE_BOTTOM - SAFE_AREA_BOTTOM >= 0.3

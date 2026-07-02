@@ -23,6 +23,18 @@ def _intro_seconds() -> float:
     except Exception:
         return 0.0
 
+
+def _outro_seconds() -> float:
+    """Duration of the branded outro card after the last scene's narration."""
+    try:
+        from config import ENABLE_BRANDING, ENABLE_OUTRO_CARD
+        if not (ENABLE_BRANDING and ENABLE_OUTRO_CARD):
+            return 0.0
+        from rendering_engine.branding import OUTRO_DURATION
+        return float(OUTRO_DURATION)
+    except Exception:
+        return 0.0
+
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output")
@@ -38,9 +50,46 @@ SFX_MAP: dict[str, str] = {
     "show_code_block": "keyboard_tick.mp3",
     "show_math": "sparkle_ping.mp3",
     "shake_element": "error_buzz.mp3",
-    "scene_transition": "transition_sweep.mp3",
+    # Cinematic upgrade for full scene transitions (new asset 2026-05-04).
+    "scene_transition": "whoosh_cinematic.mp3",
     "emphasize_text": "impact_pop.mp3",
+    # Pattern-interrupt actions emitted by retention.py — get punchy SFX
+    # so the visual interrupt has matching audio.
+    "flash_cut": "suspenseful_boom.mp3",
+    "zoom_punch": "cinematic_impact_hit.mp3",
+    "glitch_transition": "cinematic_impact_hit.mp3",
+    # Text reveals get a subtle pop — most beneficial in shorts where
+    # text cards are the primary visual event.  Long-form gets a gentle
+    # accent on every text reveal at -16 dB which is barely noticeable.
+    "show_text_block": "soft_pop.mp3",
+    "show_bullet_list": "click.mp3",
 }
+
+
+# Scene-kickoff SFX for shorts only — overlaid at each scene's video_start
+# regardless of action contents.  Gives every scene a punchy audio "stamp"
+# at the moment it begins, matching the user's TikTok/Reels expectation.
+# Updated again 2026-05-05: user explicitly asked to USE IMPACT BOOM more
+# and crank the volume.  Every scene now uses an impact/boom sound; calm
+# scenes upgraded from soft_pop -> cinematic_impact_hit, excited scenes
+# from whoosh_cinematic -> cinematic_impact_hit (whoosh felt softer than
+# the user's "boom" expectation for the CTA reveal).
+_SHORTS_KICKOFF_SFX: dict[str, str] = {
+    "hook":       "suspenseful_boom.mp3",
+    "dramatic":   "suspenseful_boom.mp3",
+    "urgent":     "cinematic_impact_hit.mp3",
+    "excited":    "cinematic_impact_hit.mp3",
+    "narrator":   "cinematic_impact_hit.mp3",
+    "analytical": "cinematic_impact_hit.mp3",
+    "calm":       "cinematic_impact_hit.mp3",
+}
+
+# How much louder than per-action SFX the shorts kickoffs play.  Each scene
+# kickoff IS the audio cue that says "new section, look up", so it must
+# punch through the music bed.  Bumped 2026-05-05 from +10 to +14 dB after
+# user feedback — at default SFX_VOLUME_DB=-16, kickoffs now play at -2 dB
+# which is unmistakably loud.
+_SHORTS_KICKOFF_BOOST_DB = 14.0
 
 
 def _load_sfx(action_type: str) -> AudioSegment | None:
@@ -265,11 +314,21 @@ def build_semantic_narration_track(
         if i < len(scene_audio_paths) - 1:
             combined += AudioSegment.silent(int(gap_s * 1000))
 
+    # Trailing runway so the outro card plays out without ffmpeg -shortest
+    # cropping it. 0.6s buffer for the last scene's fade-out animation.
+    outro_s = _outro_seconds()
+    if outro_s > 0:
+        combined += AudioSegment.silent(int((outro_s + 0.6) * 1000))
+
     if ENABLE_SFX and scene_actions:
         sfx_track = build_sfx_track(scene_actions, scene_durations, SFX_VOLUME_DB, scene_pauses=scene_pauses)
         if sfx_track is not None:
-            min_len = min(len(combined), len(sfx_track))
-            combined = combined[:min_len].overlay(sfx_track[:min_len])
+            # Don't truncate combined to sfx length — sfx_track only covers
+            # intro+scenes (no outro silence), and truncating here would
+            # crop the outro tail silence that was added above, causing the
+            # last scene's narration to bleed into the outro card visually.
+            # Overlay starting at t=0; pydub leaves the longer track intact.
+            combined = combined.overlay(sfx_track, position=0)
             logger.info("Mixed SFX track into narration")
 
     if ENABLE_BACKGROUND_MUSIC:
@@ -291,19 +350,396 @@ def build_semantic_narration_track(
     return str(out)
 
 
+def build_narration_track_from_manifest(
+    scene_audio_paths: list[str],
+    scene_ids: list[str],
+    manifest: dict,
+    output_path: str,
+    *,
+    scene_actions: list[list[dict]] | None = None,
+    category: str = "",
+    scene_moods: list[str] | None = None,
+    voice_moods: list[str] | None = None,
+    music_playback_mode: str | None = None,
+    music_highlight_moods: str | None = None,
+    music_volume_db_override: float | None = None,
+    shorts_kickoff_sfx: bool = False,
+) -> str:
+    """Lay narration audio onto the timeline declared by the renderer manifest.
+
+    The manifest (written by ``rendering_engine.full_video_scene`` during
+    Manim render) gives the actual ``video_start_seconds`` and
+    ``video_end_seconds`` for each scene in the silent video.  Each scene's
+    TTS mp3 is overlaid at exactly its ``video_start_seconds`` so the
+    narration can never drift relative to what the viewer sees, regardless
+    of how long action animations actually took to play.
+
+    The output's total duration equals ``manifest["total_video_duration"]``,
+    so ``ffmpeg -shortest`` won't crop the outro and no trailing pad is
+    required.
+
+    SFX (per action) and per-mood background music are also positioned via
+    the manifest: SFX uses ``video_start + (action_idx/n_actions) * audio_duration``;
+    music swaps at scene boundaries that match the visual cuts.
+
+    Falls back gracefully if a scene_id isn't in the manifest (logs warning,
+    uses positional match).  Caller should fall back to
+    ``build_semantic_narration_track`` if the manifest itself is unavailable.
+    """
+    from config import ENABLE_BACKGROUND_MUSIC, ENABLE_SFX, MUSIC_VOLUME_DB, SFX_VOLUME_DB
+
+    if not scene_audio_paths:
+        raise ValueError("scene_audio_paths must not be empty")
+    if len(scene_ids) != len(scene_audio_paths):
+        raise ValueError("scene_ids and scene_audio_paths must have the same length")
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    total_dur_s = float(manifest.get("total_video_duration", 0.0))
+    if total_dur_s <= 0:
+        raise ValueError("Manifest has no valid total_video_duration")
+    total_ms = int(round(total_dur_s * 1000))
+
+    track = AudioSegment.silent(total_ms)
+    scene_by_id = {s.get("scene_id"): s for s in manifest.get("scenes", [])}
+    manifest_list = manifest.get("scenes", [])
+
+    placed_video_starts: list[float] = []
+    placed_video_ends: list[float] = []
+    placed_audio_durations: list[float] = []
+    placed_actions: list[list[dict]] = []
+    placed_moods: list[str] = []
+    placed_voice_moods: list[str] = []
+
+    for i, (sid, p) in enumerate(zip(scene_ids, scene_audio_paths)):
+        m = scene_by_id.get(sid)
+        if m is None and i < len(manifest_list):
+            logger.warning(
+                "scene_id '%s' not in manifest; falling back to positional match", sid,
+            )
+            m = manifest_list[i]
+        if m is None:
+            logger.warning("Scene '%s' not in manifest — skipping in mux", sid)
+            continue
+
+        try:
+            seg = AudioSegment.from_file(p)
+        except Exception as e:
+            logger.warning("Could not load TTS audio for '%s' (%s): %s", sid, p, e)
+            continue
+
+        v_start = float(m.get("video_start_seconds", 0.0))
+        v_end = float(m.get("video_end_seconds", v_start + len(seg) / 1000.0))
+        pos_ms = int(round(v_start * 1000))
+        if pos_ms < 0 or pos_ms >= total_ms:
+            logger.warning(
+                "Scene '%s' video_start=%.2fs is outside [0, %.2fs] — skipping",
+                sid, v_start, total_dur_s,
+            )
+            continue
+
+        # Trim mp3 if it would overrun the manifest's slot for this scene.
+        # Should be rare because the renderer reserves >= audio_duration for
+        # each scene, but enforce it so we never spill into the next scene.
+        slot_ms = int(round((v_end - v_start) * 1000))
+        if slot_ms > 0 and len(seg) > slot_ms + 50:
+            logger.warning(
+                "Scene '%s' TTS audio (%.2fs) longer than rendered slot (%.2fs); trimming",
+                sid, len(seg) / 1000.0, slot_ms / 1000.0,
+            )
+            seg = seg[:slot_ms]
+
+        track = track.overlay(seg, position=pos_ms)
+        placed_video_starts.append(v_start)
+        placed_video_ends.append(v_end)
+        placed_audio_durations.append(len(seg) / 1000.0)
+        placed_actions.append(scene_actions[i] if scene_actions and i < len(scene_actions) else [])
+        placed_moods.append(scene_moods[i] if scene_moods and i < len(scene_moods) else "")
+        placed_voice_moods.append(voice_moods[i] if voice_moods and i < len(voice_moods) else "")
+
+    if ENABLE_SFX and any(placed_actions):
+        sfx_track = _build_sfx_track_from_manifest(
+            placed_actions, placed_video_starts, placed_audio_durations,
+            total_ms, SFX_VOLUME_DB,
+        )
+        if sfx_track is not None:
+            track = track.overlay(sfx_track, position=0)
+            logger.info("Mixed SFX track into manifest-aligned narration")
+
+    # Shorts: stamp every scene start with a mood-keyed SFX (boom on hook,
+    # impact on tension, whoosh on excited/CTA, soft pop on narrator) so the
+    # short feels punchy from the first frame regardless of what actions
+    # the LLM emitted.
+    if ENABLE_SFX and shorts_kickoff_sfx and placed_voice_moods:
+        kickoff_track = _build_shorts_kickoff_track(
+            placed_voice_moods, placed_video_starts, total_ms, SFX_VOLUME_DB,
+        )
+        if kickoff_track is not None:
+            track = track.overlay(kickoff_track, position=0)
+            logger.info("Mixed shorts scene-kickoff SFX")
+
+    if ENABLE_BACKGROUND_MUSIC and placed_video_starts:
+        effective_music_db = (
+            music_volume_db_override
+            if music_volume_db_override is not None
+            else MUSIC_VOLUME_DB
+        )
+        music_track = _build_music_track_from_manifest(
+            total_ms, effective_music_db, category,
+            scene_moods=placed_moods,
+            video_starts=placed_video_starts,
+            video_ends=placed_video_ends,
+            playback_mode_override=music_playback_mode,
+            highlight_moods_override=music_highlight_moods,
+        )
+        if music_track is not None:
+            track = track.overlay(music_track)
+            logger.info(
+                "Mixed background music into manifest-aligned narration (%.1f dB)",
+                effective_music_db,
+            )
+
+    track.export(str(out), format="mp3")
+    logger.info(
+        "Manifest-aligned narration: %s (%.2fs, %d scenes placed)",
+        out, total_dur_s, len(placed_video_starts),
+    )
+    return str(out)
+
+
+def _build_sfx_track_from_manifest(
+    scene_actions: list[list[dict]],
+    video_starts: list[float],
+    audio_durations: list[float],
+    total_ms: int,
+    sfx_volume_db: float,
+) -> AudioSegment | None:
+    sfx_track = AudioSegment.silent(total_ms)
+    any_sfx = False
+    for actions, vstart, adur in zip(scene_actions, video_starts, audio_durations):
+        n = max(len(actions), 1)
+        time_per_action_ms = (adur * 1000.0) / n
+        cursor_ms = float(vstart * 1000.0)
+        for action in actions:
+            sfx = _load_sfx(action.get("type", ""))
+            if sfx is not None:
+                sfx = sfx + sfx_volume_db
+                pos = int(cursor_ms)
+                if pos + len(sfx) <= len(sfx_track):
+                    sfx_track = sfx_track.overlay(sfx, position=pos)
+                    any_sfx = True
+            cursor_ms += time_per_action_ms
+    return sfx_track if any_sfx else None
+
+
+def _build_shorts_kickoff_track(
+    voice_moods: list[str],
+    video_starts: list[float],
+    total_ms: int,
+    sfx_volume_db: float,
+) -> AudioSegment | None:
+    """Overlay a mood-keyed kickoff SFX at each shorts scene's video_start.
+
+    Punches significantly louder than per-action SFX
+    (``_SHORTS_KICKOFF_BOOST_DB`` above the SFX baseline) because the
+    kickoff IS the audio cue that signals scene transitions on a phone
+    where playback may be muffled by background noise.  At default
+    SFX_VOLUME_DB=-16 + boost 10 = -6 dB total — clearly audible.
+    """
+    track = AudioSegment.silent(total_ms)
+    any_overlaid = False
+    for mood, vstart in zip(voice_moods, video_starts):
+        sfx_name = _SHORTS_KICKOFF_SFX.get((mood or "").lower())
+        if not sfx_name:
+            # Default to cinematic_impact_hit so EVERY scene has a kickoff,
+            # even if the LLM emitted an unusual mood string.
+            sfx_name = "cinematic_impact_hit.mp3"
+        path = ASSETS_SFX_DIR / sfx_name
+        if not path.is_file():
+            continue
+        try:
+            sfx = AudioSegment.from_file(str(path)) + (sfx_volume_db + _SHORTS_KICKOFF_BOOST_DB)
+        except Exception as e:
+            logger.debug("Could not load kickoff SFX %s: %s", path, e)
+            continue
+        pos = int(round(vstart * 1000))
+        if pos + len(sfx) <= total_ms:
+            track = track.overlay(sfx, position=pos)
+            any_overlaid = True
+    return track if any_overlaid else None
+
+
+def _build_music_track_from_manifest(
+    total_ms: int,
+    music_volume_db: float,
+    category: str,
+    *,
+    scene_moods: list[str],
+    video_starts: list[float],
+    video_ends: list[float],
+    playback_mode_override: str | None = None,
+    highlight_moods_override: str | None = None,
+) -> AudioSegment | None:
+    """Music bed that swaps mood at the actual visual scene boundaries.
+
+    Honors ``MUSIC_PLAYBACK_MODE`` from config (overridable via
+    ``playback_mode_override`` for callers who need different behavior than
+    the user's default — e.g. shorts force "continuous" so a 40-second
+    video isn't half-silent):
+      * ``"selective"`` (default): music plays during intro card, outro card,
+        and scenes whose mood is in ``MUSIC_HIGHLIGHT_MOODS`` only.  Most
+        scenes are silent.  This is the user-preferred default
+        (2026-05-04: continuous music with explain_loop.mp3 was irritating).
+      * ``"continuous"``: legacy mode, music under every scene.
+      * ``"off"``: returns ``None`` (no music track).
+    """
+    from config import (
+        ENABLE_MOOD_MUSIC,
+        MUSIC_HIGHLIGHT_MOODS,
+        MUSIC_INCLUDE_INTRO_OUTRO_BEDS,
+        MUSIC_PLAYBACK_MODE,
+    )
+
+    mode = (playback_mode_override or MUSIC_PLAYBACK_MODE or "selective").strip().lower()
+    if mode == "off":
+        return None
+    selective = mode == "selective"
+
+    highlight_source = highlight_moods_override or MUSIC_HIGHLIGHT_MOODS
+    highlight_moods = {
+        m.strip().lower()
+        for m in (highlight_source or "").split(",")
+        if m.strip()
+    }
+
+    track = AudioSegment.silent(total_ms)
+    overlaid_any = False
+
+    def _overlay_bed(start_ms: int, end_ms: int, mood: str) -> bool:
+        nonlocal track
+        end_ms = max(start_ms, min(end_ms, total_ms))
+        seg_len_ms = end_ms - start_ms
+        if seg_len_ms <= 0:
+            return False
+        loop = _load_background_music(category, mood) if (ENABLE_MOOD_MUSIC and mood) \
+            else _load_background_music(category)
+        if loop is None:
+            return False
+        loop = loop + music_volume_db
+        loops = (seg_len_ms // len(loop)) + 1
+        # Longer fades in selective mode so the music breathes in/out
+        # rather than chopping mid-bar.
+        fade = 700 if selective else 400
+        fade = min(fade, max(80, seg_len_ms // 3))
+        bed = (loop * loops)[:seg_len_ms].fade_in(fade).fade_out(fade)
+        track = track.overlay(bed, position=start_ms)
+        return True
+
+    # Leading bed [0, scene_1_start] — covers intro + title cards.
+    # In selective mode this is opt-in via MUSIC_INCLUDE_INTRO_OUTRO_BEDS
+    # (off by default — user feedback: even brief stings here contributed
+    # to the "continuous score" feel).  In continuous mode we always
+    # cover the leading silence so the video doesn't open in dead air.
+    include_lead_trail = (not selective) or MUSIC_INCLUDE_INTRO_OUTRO_BEDS
+    if include_lead_trail and video_starts:
+        lead_end_ms = int(round(video_starts[0] * 1000))
+        if lead_end_ms > 0:
+            if _overlay_bed(0, lead_end_ms, "calm"):
+                overlaid_any = True
+
+    # Per-scene beds.  In selective mode, only scenes with a highlight mood
+    # get a bed; in continuous mode, every scene does.
+    n_scenes = len(video_starts)
+    for i, vstart in enumerate(video_starts):
+        mood = (scene_moods[i] if i < len(scene_moods) else "").strip().lower()
+        if selective and mood not in highlight_moods:
+            continue
+
+        if i + 1 < n_scenes:
+            end_ms = int(round(video_starts[i + 1] * 1000))
+        else:
+            # Last scene: extend through outro only if intro/outro beds enabled
+            end_ms = total_ms if include_lead_trail else int(round(video_ends[i] * 1000))
+        start_ms = int(round(vstart * 1000))
+        if _overlay_bed(start_ms, end_ms, mood):
+            overlaid_any = True
+
+    # Trailing bed for outro card.  Same opt-in gate as the leading bed.
+    if include_lead_trail and video_ends:
+        last_scene_end_ms = int(round(video_ends[-1] * 1000))
+        if last_scene_end_ms < total_ms:
+            if _overlay_bed(last_scene_end_ms, total_ms, "calm"):
+                overlaid_any = True
+
+    return track if overlaid_any else None
+
+
+def _probe_duration_seconds(path: str) -> float | None:
+    """Return media file duration in seconds via ffprobe, or None on failure."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
+def _pad_audio_to_video(audio_path: str, video_path: str) -> str:
+    """If the silent video is longer than the narration, append silence so the
+    outro card and trailing fade-outs aren't cropped by ffmpeg ``-shortest``.
+
+    Returns the path to use as the audio input for muxing.  If padding isn't
+    needed (or duration probe fails), returns ``audio_path`` unchanged.
+    """
+    video_dur = _probe_duration_seconds(video_path)
+    audio_dur = _probe_duration_seconds(audio_path)
+    if video_dur is None or audio_dur is None:
+        return audio_path
+    deficit = video_dur - audio_dur
+    if deficit <= 0.05:
+        return audio_path
+
+    padded = AudioSegment.from_file(audio_path) + AudioSegment.silent(int(deficit * 1000))
+    padded_path = audio_path.replace(".mp3", ".padded.mp3")
+    padded.export(padded_path, format="mp3")
+    logger.info(
+        "Padded narration with %.2fs of trailing silence to match video (%.2fs -> %.2fs)",
+        deficit, audio_dur, audio_dur + deficit,
+    )
+    return padded_path
+
+
 def mux_video_with_audio(video_path: str, audio_path: str, output_path: str) -> str:
-    """Combine video + audio via ffmpeg.  Uses -shortest so the output matches
-    whichever track is shorter (ffmpeg pads last frame automatically)."""
+    """Combine video + audio via ffmpeg.
+
+    The audio is first padded with silence (if needed) so it matches the
+    silent video's duration — this keeps ffmpeg ``-shortest`` from clipping
+    the outro card off the end of the timeline.
+    """
     dest = Path(output_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     out = str(dest)
+
+    audio_for_mux = _pad_audio_to_video(audio_path, video_path)
 
     tmp = out + ".tmp.mp4"
 
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
-        "-i", audio_path,
+        "-i", audio_for_mux,
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",

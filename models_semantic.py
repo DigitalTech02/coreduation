@@ -466,6 +466,22 @@ class ShowImage(BaseModel):
     pan: str = "auto"  # left|right|in|out|auto
 
 
+class ShowLottie(BaseModel):
+    """Display a Lottie / SVG icon animation.
+
+    Resolution order: assets/lottie/<id>.json (Lottie via lottie pkg) →
+    assets/lottie/<id>.svg → assets/svg_icons/<id>.svg (bundled fallback).
+    Bundled ids: success_check, warning_alert, swipe_arrow, sparkle,
+    loading_dots.  Drop your own .json into assets/lottie/ to override.
+    """
+
+    type: Literal["show_lottie"] = "show_lottie"
+    lottie_id: str
+    duration: float = 1.0
+    position: str = "upper"  # upper|center|lower
+    scale: float = 0.0  # 0 = use default height (2.4 units)
+
+
 class FlashCut(BaseModel):
     """Single-frame flash to inject a pattern interrupt."""
 
@@ -538,6 +554,7 @@ _VisualActionUnion = Union[
     AddCallout,
     SceneTransition,
     ShowImage,
+    ShowLottie,
     FlashCut,
     ZoomPunch,
     GlitchTransition,
@@ -560,7 +577,10 @@ class SemanticScene(BaseModel):
     narration: str
     visual_description: str
     actions: list[VisualAction]
-    estimated_duration: float
+    # Optional: the LLM occasionally omits this. It's only used as a fallback
+    # before TTS measures the actual audio duration; the real timing always
+    # comes from audio_duration once available.
+    estimated_duration: float = 12.0
 
     voice_mood: str = ""
     music_mood: str = ""
@@ -594,6 +614,7 @@ class SemanticVideoScript(BaseModel):
     retention_beats: list[RetentionBeat | str] = Field(default_factory=list)
     target_audience: str = ""
     emotional_tone: str = ""
+    key_phrase: str = ""
     suggested_thumbnail_text: str = ""
     suggested_youtube_title: str = ""
     suggested_youtube_tags: list[str] = Field(default_factory=list)
@@ -613,7 +634,7 @@ class EnrichedScene(BaseModel):
     narration: str
     visual_description: str
     actions: list[VisualAction]
-    estimated_duration: float
+    estimated_duration: float = 12.0
     audio_path: str | None = None
     audio_duration: float | None = None
     video_path: str | None = None
@@ -622,6 +643,11 @@ class EnrichedScene(BaseModel):
     image_prompt: str = ""
     pause_after: float = 0.0
     narration_pace: str = "normal"
+    # Whisper word-level alignment from this scene's TTS audio.  Populated
+    # by main.py after TTS when ENABLE_SUBTITLE_ALIGNMENT is on.  Each
+    # element: {"start": float, "end": float, "text": str}.  Drives
+    # subtitle timing in the rendering engine.
+    whisper_words: list[dict] = Field(default_factory=list)
 
     @field_validator("type", mode="before")
     @classmethod
@@ -644,6 +670,7 @@ class EnrichedVideoScript(BaseModel):
     retention_beats: list[RetentionBeat | str] = Field(default_factory=list)
     target_audience: str = ""
     emotional_tone: str = ""
+    key_phrase: str = ""
     suggested_thumbnail_text: str = ""
     suggested_youtube_title: str = ""
     suggested_youtube_tags: list[str] = Field(default_factory=list)
@@ -661,6 +688,7 @@ class EnrichedVideoScript(BaseModel):
             retention_beats=llm_script.retention_beats,
             target_audience=llm_script.target_audience,
             emotional_tone=llm_script.emotional_tone,
+            key_phrase=llm_script.key_phrase,
             suggested_thumbnail_text=llm_script.suggested_thumbnail_text,
             suggested_youtube_title=llm_script.suggested_youtube_title,
             suggested_youtube_tags=llm_script.suggested_youtube_tags,

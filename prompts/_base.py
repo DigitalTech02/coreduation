@@ -346,7 +346,65 @@ node first (create_node) so it has a referenceable ID.
 - show_progress should be placed early in step-by-step scenes; use \
 update_progress to advance the step counter.
 - Include at least one failure/error scenario per video when appropriate. Use \
-shake_element + a red highlight or callout to illustrate the failure.\
+shake_element + a red highlight or callout to illustrate the failure.
+- The narration must NEVER include closing CTAs such as "thanks for \
+watching", "subscribe", "hit the bell", "see you next time", or "like and \
+subscribe". A separate outro card handles the channel CTA — duplicating it \
+in narration creates an awkward double-ending. End the final scene's \
+narration on the topic itself (a takeaway, a callback to the open-loop \
+question, or a forward-looking thought).
+
+═══════════════════════════════════════════
+KEY PHRASE — recurring mental model
+═══════════════════════════════════════════
+
+Every video must have ONE memorable key_phrase (3-7 words) that captures the
+core insight in plain English. The key_phrase is the line a viewer should
+still remember tomorrow. Examples:
+  - PKCE: "No verifier, no token."
+  - Binary search: "Cut the search space in half."
+  - TCP retransmit: "Trust nothing, confirm everything."
+  - Database index: "Read the address, skip the search."
+  - Idempotency: "Same request, same result."
+
+How to weave it through the video:
+  1. Set the top-level "key_phrase" field in your output JSON.
+  2. Land it once near the climax scene — use emphasize_text with the phrase
+     as the text, right after the core mechanism is shown working.
+  3. Land it again in the FINAL scene — also via emphasize_text — as the
+     last visual the viewer sees before the outro card.
+  4. (Optional) Reference it in narration text 1-2 times so it lodges in
+     the viewer's memory.
+
+═══════════════════════════════════════════
+FINAL SCENE — strong takeaway, NOT a bullet list
+═══════════════════════════════════════════
+
+The last scene should NOT be a generic "Summary" with show_bullet_list.
+That's the most-skipped scene in any tutorial. Instead:
+
+  1. Open with a contrast statement using show_comparison:
+     - left column: the world WITHOUT this concept (the danger / cost / pain)
+     - right column: the world WITH this concept (the safety / win / payoff)
+     Use 2-3 short bullets per column, not paragraphs.
+
+  2. End with the key_phrase as a large emphasize_text card.
+     This is the visual punch line — it should feel like a movie's final shot.
+
+  3. The narration on the final scene should be 1-3 sentences MAX.
+     It restates the contrast and lands the key_phrase. Nothing else.
+
+GOOD final scene example:
+  show_comparison: "Without PKCE: code is a bearer secret"
+                vs "With PKCE: code is useless without the verifier"
+  emphasize_text: "No verifier, no token."
+
+BAD final scene (do NOT do this):
+  show_bullet_list: ["Use PKCE on public clients", "Prefer S256",
+                     "Never log the verifier", "Restrict redirect URIs",
+                     "Monitor failed attempts"]
+  → checklists belong in a config/best-practices scene mid-video, NOT the
+  ending. The ending must leave the viewer with a single phrase.\
 """
 
 # ── Output format (identical across all categories) ──────────────────────
@@ -365,6 +423,11 @@ OPTIONAL top-level metadata (include when possible for better videos):
   "retention_beats" — array of short re-hook phrases used in narration
   "target_audience" — e.g. "CS students", "junior developers"
   "emotional_tone" — e.g. "curious and energetic", "serious and precise"
+  "key_phrase" — REQUIRED for memorability. 3-7 word mental model the viewer
+                 should remember tomorrow. Examples: "No verifier, no token."
+                 / "Cut the search space in half." / "Same request, same
+                 result." Land it as emphasize_text at the climax AND in the
+                 final scene (see SHARED_RULES → KEY PHRASE section).
   "suggested_thumbnail_text" — short punchy text for a thumbnail (3-6 words max)
   "suggested_youtube_title" — optimized YouTube title (<70 chars, hooks viewer)
   "suggested_youtube_tags" — array of 8-15 SEO-friendly tags (no '#', e.g. "btree", "databases")

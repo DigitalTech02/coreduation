@@ -67,7 +67,7 @@ def _get_branding_config():
             "intro": True,
             "outro": True,
             "watermark": True,
-            "name": "CoreDuation",
+            "name": "DT2",
             "tagline": "Engineering, explained.",
         }
 
@@ -90,7 +90,7 @@ def play_intro_card(scene: Any, category: str = "") -> None:
     outer = Circle(radius=0.55, color=accent, stroke_width=4)
     inner = Circle(radius=0.32, color=accent, stroke_width=0)
     inner.set_fill(accent, opacity=0.85)
-    glyph = Text("CD", font_size=28, color=BG_COLOR)
+    glyph = Text("DT2", font_size=22, color=BG_COLOR, weight="BOLD")
     glyph.move_to(inner.get_center())
     logo = VGroup(outer, inner, glyph).move_to(ORIGIN)
 
@@ -198,5 +198,53 @@ def add_watermark(scene: Any, state, category: str = "") -> None:
         try:
             state.objects[_WATERMARK_KEY] = name
             state._categories[_WATERMARK_KEY] = "persistent"
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Top-left credit label — "Created by Human & AI"
+# ---------------------------------------------------------------------------
+
+_CREDIT_LABEL_KEY = "__credit_label"
+
+
+def add_credit_label(scene: Any, state, text: str = "Created by Human & AI") -> None:
+    """Add a dim "Created by Human & AI" credit to the top-left corner.
+
+    Persistent for the whole video; anchored to the camera frame so it
+    survives zoom/parallax.  Sits at z=30 so it overlays drifting decor
+    but stays behind any scene-level emphasis content.
+    """
+    cfg = _get_branding_config()
+    if not cfg["enable"]:
+        return
+
+    label = Text(text, font_size=14, color=WHITE)
+    label.set_opacity(0.45)
+
+    camera = getattr(scene, "camera", None)
+    frame = getattr(camera, "frame", None)
+
+    def _anchor(mob):
+        if frame is None:
+            mob.to_corner(UP + LEFT, buff=0.18)
+            return
+        try:
+            cx = frame.get_center()[0] - frame.get_width() / 2 + mob.width / 2 + 0.22
+            cy = frame.get_center()[1] + frame.get_height() / 2 - mob.height / 2 - 0.22
+            mob.move_to([cx, cy, 0])
+        except Exception:
+            mob.to_corner(UP + LEFT, buff=0.18)
+
+    _anchor(label)
+    label.add_updater(_anchor)
+    label.set_z_index(30)
+    scene.add(label)
+
+    if state is not None:
+        try:
+            state.objects[_CREDIT_LABEL_KEY] = label
+            state._categories[_CREDIT_LABEL_KEY] = "persistent"
         except Exception:
             pass

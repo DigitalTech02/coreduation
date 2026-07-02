@@ -99,6 +99,29 @@ def _parse_position(pos: str) -> tuple[float, float, float]:
     return (0, 0, 0)
 
 
+def _clamp_node_into_safe_area(mob, padding: float = 0.15) -> None:
+    """Shift a node so its full bounding box (label + shape) sits inside the
+    safe area.  The LLM occasionally emits positions like (6,0) which place
+    the centre near the right edge — half the node spills off-frame.
+    """
+    left = float(mob.get_left()[0])
+    right = float(mob.get_right()[0])
+    top = float(mob.get_top()[1])
+    bottom = float(mob.get_bottom()[1])
+    dx = 0.0
+    dy = 0.0
+    if right > SAFE_AREA_RIGHT - padding:
+        dx = (SAFE_AREA_RIGHT - padding) - right
+    elif left < SAFE_AREA_LEFT + padding:
+        dx = (SAFE_AREA_LEFT + padding) - left
+    if top > SAFE_AREA_TOP - padding:
+        dy = (SAFE_AREA_TOP - padding) - top
+    elif bottom < SAFE_AREA_BOTTOM + padding:
+        dy = (SAFE_AREA_BOTTOM + padding) - bottom
+    if dx or dy:
+        mob.shift([dx, dy, 0])
+
+
 # ---------------------------------------------------------------------------
 # Node shape builders
 # ---------------------------------------------------------------------------
@@ -153,12 +176,49 @@ def _build_node_shape(icon_type: str, color):
 # Public API
 # ---------------------------------------------------------------------------
 
+_ROLE_COLOR_RED = "#e57373"     # NEGATIVE-equivalent hex for attackers
+_ROLE_COLOR_BLUE = "#90caf9"    # PRIMARY-equivalent hex for victims/clients
+_ROLE_COLOR_GREEN = "#a5d6a7"   # POSITIVE-equivalent hex for trusted/secure
+_ROLE_COLOR_GOLD = "#ffd54f"    # ACCENT-equivalent hex for secrets/tokens
+
+
+def _role_color_from_label(label: str, fallback):
+    """Infer a semantic accent color from a node label.
+
+    Returns the fallback when no role keyword matches. Keeps the rule
+    simple: a single keyword scan, no scoring or fuzzy matching.
+    """
+    if not label:
+        return fallback
+    lower = label.lower()
+    # Threat actors → red
+    if any(k in lower for k in ("attacker", "evil", "malicious", "intruder",
+                                 "adversary", "rogue", "compromised")):
+        return _ROLE_COLOR_RED
+    # Victims / clients / requesters → blue
+    if any(k in lower for k in ("victim", "client", "user", "browser")):
+        return _ROLE_COLOR_BLUE
+    # Trusted / secure / verified → green
+    if any(k in lower for k in ("trusted", "secure", "verified", "authority",
+                                 "legitimate")):
+        return _ROLE_COLOR_GREEN
+    # Secrets / tokens / keys → gold
+    if any(k in lower for k in ("secret", "token", "key vault", "verifier")):
+        return _ROLE_COLOR_GOLD
+    return fallback
+
+
 def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     """Render a create_node action."""
     pos = _parse_position(action.position)
     _, default_color = ICON_THEME.get(action.icon_type.value, ("rectangle", MUTED))
 
-    shape = _build_node_shape(action.icon_type.value, default_color)
+    # Role-based color override: a node labelled "Attacker" should be red
+    # regardless of icon_type, "Victim App" blue, etc. This adds a layer of
+    # semantic colour the LLM doesn't have to think about.
+    color = _role_color_from_label(action.label, default_color)
+
+    shape = _build_node_shape(action.icon_type.value, color)
     shape.move_to(pos)
 
     label_text = action.label[:18] + "…" if len(action.label) > 18 else action.label
@@ -195,6 +255,27 @@ def render_create_node(scene: ManimScene, state: SceneState, action) -> None:
     text_bg.move_to(text_group.get_center())
 
     group = VGroup(shape, text_bg, *text_parts)
+    _clamp_node_into_safe_area(group)
+
+    # Cheap depth: drop a couple of dark offset copies of just the shape
+    # behind the existing group via add_to_back so update_node's `mob[0]`
+    # contract still holds (shape stays at index 0).
+    try:
+        from config import ENABLE_ISOMETRIC_SHADOW
+    except Exception:
+        ENABLE_ISOMETRIC_SHADOW = True
+    if ENABLE_ISOMETRIC_SHADOW:
+        try:
+            for i in (2, 1):
+                shadow = shape.copy()
+                shadow.set_color("#000000")
+                shadow.set_fill("#000000", opacity=0.22 - (i - 1) * 0.06)
+                shadow.set_stroke(width=0)
+                shadow.shift([0.07 * i, -0.07 * i, 0])
+                group.add_to_back(shadow)
+        except Exception:
+            pass
+
     state.register(action.id, group)
     scene.play(FadeIn(group), run_time=FADE_DURATION)
 

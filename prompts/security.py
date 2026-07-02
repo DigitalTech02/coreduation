@@ -19,41 +19,76 @@ protocol behavior and packet-level detail.""",
 VIDEO STRUCTURE (10-16 scenes)
 ═══════════════════════════════════════════
 
-1. THREAT LANDSCAPE (1-2 scenes)
-   - Real-world incident or attack scenario as motivation
-   - show_text_block: "What could go wrong?"
-   - show_bullet_list: attack vectors, threat actors
+THE MINI-DRAMA PATTERN
 
-2. HOW IT WORKS (2-3 scenes)
-   - Protocol / mechanism explanation
-   - show_layer_stack to position in the network stack
-   - show_header_breakdown for relevant packet fields (TLS record, certificates)
+Security videos work best as a SHORT PLAY with three recurring characters:
+  - VICTIM APP   (id: "victim_app",   icon_type: "computer")
+  - ATTACKER     (id: "attacker",     icon_type: "generic", labelled "Attacker")
+  - AUTH SERVER  (or RESOURCE SERVER) (id: "auth_server" / "resource_server",
+                                       icon_type: "server")
 
-3. ATTACK VISUALIZATION (2-3 scenes)
-   - Animate the attack using topology + send_packet
-   - create_node: attacker, victim, server
-   - send_packet with red/orange colors for malicious traffic
-   - show_sequence_diagram for multi-step attack flows (MITM, replay)
+Once you create these nodes in scene 2, REUSE THE SAME IDs across every
+scene that involves them. The renderer keeps them alive between scenes —
+recreating with the same id is wrong (use update_node to relabel/highlight).
+The viewer should recognise the same boxes as the story progresses, like
+returning characters in a movie. This is critical for retention.
 
-4. DEFENSE MECHANISM (2-3 scenes)
-   - Show how the defense works step by step
-   - show_sequence_diagram for authentication/handshake protocols
-   - send_packet with green colors for secured traffic
-   - show_header_breakdown for security fields (MAC, signatures, tokens)
+1. THREAT HOOK (1 scene)
+   - Open with a real-world consequence: "Login codes are being stolen."
+   - emphasize_text or short show_text_block stating the stake
+   - Do NOT introduce the topic name first — open with the danger
 
-5. CONFIGURATION & IMPLEMENTATION (1-2 scenes)  ← REQUIRED
-   - ALWAYS include at least one scene with show_code_block showing real
-     security config the viewer can apply (firewall rules, TLS setup, IAM
-     policies, nginx SSL config, JWT validation, etc.)
-   - show_table for cipher suites, key sizes, algorithm comparison
-   - Viewers need actionable defense steps, not just theory
+2. THE CAST (1 scene)
+   - Introduce the three characters as recurring on-screen actors. Two
+     valid patterns:
 
-6. COMPARISON & BEST PRACTICES (1 scene)
-   - show_comparison: secure vs insecure, TLS 1.2 vs 1.3, symmetric vs asymmetric
-   - show_bullet_list: hardening checklist
+     PATTERN A — hook scene 1 did NOT show the cast yet:
+       Use create_topology (or three create_node) to put victim_app /
+       attacker / auth_server on screen for the first time. Add a brief
+       intro caption.
 
-7. SUMMARY (1 scene)
-   - Key takeaways as show_bullet_list""",
+     PATTERN B — hook scene 1 already created victim_app / attacker /
+     auth_server: do NOT recreate them (same IDs would just duplicate the
+     boxes). Instead, INTRODUCE THEM ONE-BY-ONE using retention actions
+     on the existing IDs:
+       - pulse_element on victim_app + add_callout "The Victim App"
+       - pulse_element on attacker + add_callout "The Attacker"
+       - pulse_element on auth_server + add_callout "The Auth Server"
+     This gives the cast a proper introduction without re-rendering them.
+     NEVER write a scene whose only action is a show_text_block "Meet
+     the Cast" — that renders as a tiny title floating in empty space.
+
+3. THE NORMAL FLOW (1-2 scenes)
+   - Show the legitimate flow working with green/blue packets
+   - send_packet from victim_app → auth_server → victim_app
+   - Establish what success looks like
+
+4. THE ATTACK (2-3 scenes)  ← THE EMOTIONAL LOW
+   - Same three characters, but now the attacker intercepts
+   - Use shake_element on the victim, pulse_element on the attacker
+   - send_packet with RED/ORANGE for the malicious traffic
+   - End with a visual punch: emphasize_text "Compromised!" or "Code Stolen"
+
+5. THE FIX — MECHANISM (2-3 scenes)
+   - Introduce the defense with show_text_block or show_sequence_diagram
+   - show_header_breakdown for any new security fields
+   - Step by step, narrated calmly — this is the explanation phase
+
+6. CONFIGURATION (1 scene)  ← REQUIRED
+   - ALWAYS include show_code_block with real, actionable config
+   - Firewall rules, TLS setup, JWT validation, OAuth client config, etc.
+
+7. THE ATTACKER FAILS (1 scene)  ← THE EMOTIONAL HIGH
+   - Replay the SAME attack scene from step 4 — same characters, same
+     send_packet sequence — but now the auth_server REJECTS the attacker.
+   - Use shake_element on the attacker (not the victim this time)
+   - emphasize_text the key_phrase here, e.g. "No verifier, no token."
+   - This is the climax and the most important scene of the video.
+
+8. FINAL TAKEAWAY (1 scene)  ← see SHARED_RULES → FINAL SCENE
+   - show_comparison: Without DEFENSE | With DEFENSE
+   - emphasize_text the key_phrase one more time as the closing visual
+   - NOT a bullet list. Final scene is a single mental model, not a checklist.""",
 
     narration_style="""\
 ═══════════════════════════════════════════
@@ -106,21 +141,32 @@ AVOID:
 
     example_scene="""\
 ═══════════════════════════════════════════
-EXAMPLE SCENE (gold standard)
+EXAMPLE — THE CLIMAX SCENE (gold standard)
 ═══════════════════════════════════════════
 
+This is "step 7: The Attacker Fails" — same three characters that appeared
+earlier in the video, replayed with the defense now in place. Notice:
+  - victim_app, attacker, auth_server are referenced by ID — not recreated
+  - the same send_packet pattern as the attack scene, but the server rejects
+  - emphasize_text lands the key_phrase as the climax visual
+
 {
-  "scene_id": "mitm-attack-demo",
-  "title": "Man-in-the-Middle Attack",
+  "scene_id": "attacker-fails-with-pkce",
+  "title": "The Attacker Fails",
   "type": "visualization",
-  "narration": "Here's how a man-in-the-middle attack works. The attacker positions themselves between the client and server. When the client sends a request, the attacker intercepts it, reads or modifies the data, and forwards it to the server — the client has no idea.",
-  "visual_description": "Three nodes: Client, Attacker (middle), Server. Red packets intercepted by attacker.",
+  "narration": "Now watch the same attack with PKCE in place. The attacker steals the code, just like before. They try to redeem it. But the server asks for the verifier. The attacker doesn't have it. Game over.",
+  "visual_description": "Same three characters. Attacker steals code, tries to redeem, server rejects.",
   "actions": [
-    {"type": "send_packet", "from": "client", "to": "attacker", "label": "Login (plain)", "color": "red", "speed": 1.0},
-    {"type": "send_packet", "from": "attacker", "to": "server", "label": "Login (modified)", "color": "orange", "speed": 1.0},
-    {"type": "send_packet", "from": "server", "to": "attacker", "label": "Response", "color": "orange", "speed": 1.0},
-    {"type": "send_packet", "from": "attacker", "to": "client", "label": "Fake response", "color": "red", "speed": 1.0}
+    {"type": "send_packet", "from": "victim_app", "to": "auth_server", "label": "request + challenge", "color": "blue"},
+    {"type": "send_packet", "from": "auth_server", "to": "victim_app", "label": "auth code", "color": "blue"},
+    {"type": "send_packet", "from": "auth_server", "to": "attacker", "label": "code (stolen)", "color": "red"},
+    {"type": "send_packet", "from": "attacker", "to": "auth_server", "label": "code (no verifier)", "color": "red"},
+    {"type": "shake_element", "target_id": "attacker", "duration": 0.6},
+    {"type": "send_packet", "from": "auth_server", "to": "attacker", "label": "REJECTED", "color": "red"},
+    {"type": "emphasize_text", "text": "No verifier, no token.", "emphasis_type": "pop", "duration": 1.4}
   ],
-  "estimated_duration": 22
+  "estimated_duration": 24,
+  "pause_after": 1.5,
+  "voice_mood": "dramatic"
 }""",
 )

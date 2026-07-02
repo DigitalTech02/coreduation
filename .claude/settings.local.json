@@ -1,7 +1,46 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find \"C:\\\\workspace\\\\coreduation1/tests\" -name \"*.py\" -type f 2>/dev/null | head -10)"
+      "Bash(find \"C:\\\\workspace\\\\coreduation1/tests\" -name \"*.py\" -type f 2>/dev/null | head -10)",
+      "Bash(python -m pytest tests/ -q --tb=short)",
+      "Bash(git push *)",
+      "Bash(git stash *)",
+      "Bash(python *)",
+      "Bash(ffmpeg -ss 114.6 -i output/20260503_141848_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4 -frames:v 1 -y temp/4a_check/compromised-punch.png)",
+      "Bash(ffmpeg -ss 126.5 -i output/20260503_141848_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4 -frames:v 1 -y temp/4a_check/why-is-this-possible.png)",
+      "Bash(ffmpeg -ss 206.8 -i output/20260503_141848_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4 -frames:v 1 -y temp/4a_check/pkce-layer-model.png)",
+      "Bash(ffmpeg -ss 27.3 -i output/20260503_170436_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4 -frames:v 1 -y temp/pkce_fresh/meet-our-cast_t273.png)",
+      "Bash(ffmpeg -ss 241.3 -i output/20260503_170436_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4 -frames:v 1 -y temp/pkce_fresh/real-world-pitfalls_t2413.png)",
+      "Bash(ffmpeg -ss 129.5 -i output/20260503_170436_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4 -frames:v 1 -y temp/pkce_fresh/why_t1295.png)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(ENABLE_SCENE_QA=true ENABLE_AUTO_FIX=true python *)",
+      "Bash(ffmpeg -ss 238 -i output/20260503_175514_semantic_url-shortener-design/final_semantic.fixed.mp4 -frames:v 1 -y temp/url_check/scaling.png)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_175514_semantic_url-shortener-design/final_semantic.fixed.mp4)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_175514_semantic_url-shortener-design/final_semantic.mp4)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_175514_semantic_url-shortener-design/full_narration.mp3)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_175514_semantic_url-shortener-design/full_narration.padded.mp3)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_175514_semantic_url-shortener-design/final_with_chrome.mp4)",
+      "Bash(ffmpeg -ss 266 -i output/20260503_175514_semantic_url-shortener-design/final_semantic.fixed.mp4 -vn -af \"astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level\" -f null -)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_172931_semantic_oauth-2-0-why-we-need-pkce/full_narration.mp3)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_172931_semantic_oauth-2-0-why-we-need-pkce/final_semantic.mp4)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_170436_semantic_b-tree-indexes/full_narration.mp3)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_170436_semantic_b-tree-indexes/final_semantic.mp4)",
+      "Bash(ffmpeg -ss 160 -i output/20260503_175514_semantic_url-shortener-design/final_semantic.mp4 -frames:v 1 -y temp/url_check/orig_code.png)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_220544_semantic_url-shortener-design/final_semantic.mp4)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_220544_semantic_url-shortener-design/full_narration.mp3)",
+      "Bash(ffmpeg -ss 158 -i output/20260503_220544_semantic_url-shortener-design/final_semantic.mp4 -frames:v 1 -y temp/url_v2/api_t158.png)",
+      "Bash(ffmpeg -ss 162 -i output/20260503_220544_semantic_url-shortener-design/final_semantic.mp4 -frames:v 1 -y temp/url_v2/api_t162.png)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_222658_semantic_url-shortener-design/final_semantic.mp4)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_222658_semantic_url-shortener-design/full_narration.mp3)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_223730_semantic_url-shortener-design/final_semantic.mp4)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/20260503_223730_semantic_url-shortener-design/full_narration.mp3)",
+      "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(ffprobe *)",
+      "Bash(git diff *)",
+      "Bash(git commit *)",
+      "Bash(git fetch *)"
     ]
   }
 }

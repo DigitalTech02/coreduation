@@ -35,10 +35,24 @@ class FullSemanticVideo(MovingCameraScene):
         except Exception:
             ENABLE_THEMED_BACKGROUNDS = True
 
-        if ENABLE_THEMED_BACKGROUNDS:
+        try:
+            from config import ENABLE_MESH_GRADIENT_LONG
+        except Exception:
+            ENABLE_MESH_GRADIENT_LONG = False
+
+        if ENABLE_MESH_GRADIENT_LONG:
+            from rendering_engine.mesh_gradient import apply_mesh_gradient_background
+            apply_mesh_gradient_background(self, category)
+        elif ENABLE_THEMED_BACKGROUNDS:
             apply_themed_background(self, category)
         else:
             self.camera.background_color = BG_COLOR
+
+        try:
+            from rendering_engine.ambient import apply_margin_decor
+            apply_margin_decor(self, category)
+        except Exception as e:
+            logger.debug("Ambient margin decor skipped: %s", e)
 
         self.camera.frame.set_width(14.2)
 

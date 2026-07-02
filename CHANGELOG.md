@@ -1,5 +1,177 @@
 # CoreDuation — Changelog
 
+## v4.1 — Shorts polish + multi-provider AI B-roll (May 2026)
+
+Iterative polish on the shorts pipeline driven by user frame-by-frame
+review.  Each pass addressed specific visual or audio gaps the user
+flagged, plus a final round of AI image-generation provider options.
+
+### Shorts polish — visual
+
+| Pass | Theme | Key changes | Modules |
+|---|---|---|---|
+| 1 | Make it watchable | Auto-fill empty `show_text_block` from narration; vertical-mode font scaling (1.5×); subtitles lifted off phone UI bar; top category badge + progress bar; CTA overlay on last scene. | `shorts_orchestrator.py`, `rendering_engine/full_video_scene.py`, `rendering_engine/presentation.py`, `rendering_engine/subtitles.py` |
+| 2 | Visual metaphors | Six Manim-native icon primitives (warning, broken_lock, handshake, shield, swipe_arrow, lightbulb) auto-routed by scene index + voice_mood + category; per-scene injection of pattern-interrupt actions for kickoff energy. | `rendering_engine/shorts_metaphors.py` (new) |
+| 3 | Fix invisibility | Tagged metaphors with `category="presentation"` got wiped by `state.clear_presentation()` — moved to custom `"shorts_chrome"` category with manual cleanup at scene end.  Bumped fonts to 2.4×/2.0×.  Bigger category badge (38pt). | `rendering_engine/shorts_metaphors.py`, `rendering_engine/full_video_scene.py`, `rendering_engine/presentation.py` |
+| 4 | Bigger and bolder | Metaphor scale 1.55×→1.95×; story-driven metaphor colors (yellow=danger / red=fail / green=secure / gold=CTA) regardless of category accent; rebuilt shield as real Polygon silhouette; min card sizes (7.4×3.0 text, 7.4×4.0 bullets). | `rendering_engine/shorts_metaphors.py`, `rendering_engine/presentation.py` |
+| 5 | Full-bleed mood panels | Replaced "small card on dark canvas" with infographic-style colored panel that fills 95% of the canvas vertically — neon palette, three stacked gradient slabs at bottom, four diagonal light-ray streaks at 25°, top-right accent blob.  IDE-style traffic-light window chrome (red/yellow/green dots) on `show_code_block` in shorts mode. | `rendering_engine/full_video_scene.py`, `rendering_engine/presentation.py` |
+
+### Shorts polish — audio
+
+- Mood-keyed scene-kickoff SFX overlaid at every scene's `video_start_seconds` regardless of action contents: hook/dramatic → `suspenseful_boom`; everything else → `cinematic_impact_hit`.  No more soft_pop on narrator scenes — every scene punches in with an impact.
+- Kickoff volume `_SHORTS_KICKOFF_BOOST_DB`: 4 → 14 dB above SFX baseline.  Plays at -2 dB total at default `SFX_VOLUME_DB=-16` — clearly audible against music.
+- Background music for shorts: `music_volume_db_override=-18.0` (vs the global `-36`), `music_playback_mode="continuous"`.  Music is present, not wallpaper.
+- Long-form pipeline untouched (global `MUSIC_VOLUME_DB=-36`, no kickoff SFX).
+
+### Auto-injection of AI illustrations
+
+`shorts_orchestrator._inject_ai_illustrations` walks each scene after the LLM call and auto-prepends a `show_image` action with a derived prompt routed by scene_id keywords + voice_mood + narration content (hook → "alarming concept", attack/hack words → "broken padlock + red lightning", secure/encrypt words → "glowing green padlock + handshake", CTA → "smartphone with play button + finger tap"). All prompts share a base style block — *"vibrant flat cartoon illustration, neon accent colors, dark navy background, bold outlines, vector style, no text, clean infographic style, square 1:1"* — so the four illustrations in a single short look like the same artist drew them. Geometric metaphor steps aside when the scene has an AI illustration (avoid double visuals).
+
+### Multi-provider AI B-roll
+
+`broll_generator.py` gained four interchangeable providers behind `BROLL_IMAGE_PROVIDER`:
+
+| Provider | Model | $/image | Speed | Use case |
+|---|---|---|---|---|
+| **fal** *(default)* | `fal-ai/flux/schnell` | $0.003 | 2s | Cheapest; fast iteration |
+| openai *(universal fallback)* | `dall-e-3` | $0.04 | 10s | Best prompt adherence |
+| recraft | `recraftv3` | $0.04 | 5s | Best vector / illustration style |
+| replicate | `black-forest-labs/flux-schnell` | $0.003 | 3s | Largest model catalog |
+
+All non-OpenAI providers fall back to OpenAI DALL-E if their API key is missing or SDK isn't installed — pipeline never breaks because of provider unavailability. Cache key includes provider+model so switching producers naturally regenerates without colliding.
+
+New env vars (all with safe defaults; provider-specific keys empty):
+
+```bash
+BROLL_IMAGE_PROVIDER=fal
+FAL_KEY=                                 FAL_IMAGE_MODEL=fal-ai/flux/schnell
+RECRAFT_API_TOKEN=                       RECRAFT_IMAGE_MODEL=recraftv3
+                                         RECRAFT_STYLE=digital_illustration
+REPLICATE_API_TOKEN=                     REPLICATE_IMAGE_MODEL=black-forest-labs/flux-schnell
+BROLL_IMAGE_MODEL=dall-e-3               # OpenAI fallback model
+```
+
+Optional dependencies (pipeline runs without them — falls back to OpenAI):
+- `fal-client>=0.5.0`
+- `replicate>=1.0.4`
+- Recraft uses pure REST (no SDK)
+
+### Bug fixes during polish
+
+- `'EnrichedVideoScript' object has no attribute 'title'` — orchestrator was reading `.title`; the Pydantic field is `video_title` or `topic`. Use `getattr(s, "video_title", "") or s.topic`.
+- `repair_duplicate_ids(script.scenes)` was passing a list instead of the full script and ignoring the return; fixed to `script = repair_duplicate_ids(script)`.
+- LLM emitting empty action placeholders (`{"type": ""}` × 8) — added concrete JSON examples per action to `prompts/shorts.py:SHORTS_SYSTEM_PROMPT` so the LLM sees the exact field names. Also added defensive enrichment (`_enrich_empty_actions`) to fill empty title+body from narration.
+- Shorts metaphor invisible bug: cause was tagging with `category="presentation"`, which `state.clear_presentation()` wipes before every text/bullet action runs. Fixed with `"shorts_chrome"` custom category + manual cleanup.
+
+158 tests still pass throughout — none required updating since the shorts polish stayed within established APIs.
+
+---
+
+## v4.0 — Reliability + Shorts (May 2026)
+
+Four numbered tracks shipped on `semantic-engine-v6` → `v9` over April–May 2026. Shifts the project from "polished single-deliverable pipeline" to "guaranteed-AV-synced multi-platform content engine." All work additive and gated by feature flags / CLI flags.
+
+### Track 4 — Per-scene frame validation + auto-fix (Apr 2026)
+
+| # | Feature | Modules |
+|---|---|---|
+| 1 | **Deterministic frame validator** — samples each scene at known timestamps, asserts visible content matches the script's expected ids/text. Cheap (no LLM), runs every render. | `frame_validator.py`, `tests/test_frame_validator.py` |
+| 2 | **Scene QA structured-output audit** — optional GPT-4o per-scene check with structured-output JSON for blank/overlap/cutoff/illegibility issues. Gated by `ENABLE_SCENE_QA`. | `vision_qa.py:run_scene_qa` |
+| 3 | **Auto-fix retry loop** — collects failed scenes, re-asks the LLM for revised actions, re-renders just those scenes, re-stitches. Gated by `ENABLE_AUTO_FIX`. | `auto_fix.py`, `tests/test_auto_fix.py` |
+
+### Track 5 — Whisper subtitles + ambient visuals + YouTube bridge (May 2026)
+
+| # | Feature | Modules |
+|---|---|---|
+| 4 | **Whisper-aligned scheduled subtitles** — `whisper_align.py` returns word-level timestamps; `subtitles.schedule_subtitles_for_scene` pre-creates subtitle mobjects with per-frame opacity updaters bound to `(scene.renderer.time - scene_start)`. Subtitles track narration audio progression in real time, not the post-action wait. Min-3-words rule + forward/backward merge eliminates "So", "Now", "But wait" fragments. | `whisper_align.py`, `rendering_engine/subtitles.py`, `rendering_engine/full_video_scene.py` |
+| 5 | **Drifting particle field** — 22 dots scattered across the canvas, biased to the margins, faded to 35 % inside the safe area. Per-particle sin-wave drift so the field never pulses in lockstep. | `rendering_engine/themes.py:_add_particle_field` |
+| 6 | **Margin-zone ambient decor** — slow-rotating stars/polygons/circles in the side strips outside the safe area. | `rendering_engine/ambient.py` |
+| 7 | **Isometric drop shadows** — stacked dark offset copies behind cards/topology nodes via `make_isometric_shadow`. Cheap depth illusion. | `rendering_engine/styles.py`, `rendering_engine/topology.py`, `rendering_engine/presentation.py` |
+| 8 | **Always-on persistent topic header** — never hidden mid-video so a viewer joining late always knows the topic. | `rendering_engine/full_video_scene.py:_toggle_persistent_topic_header` |
+| 9 | **Persistent credit label** — dim "Created by Human & AI" anchored to the camera frame's top-left corner. | `rendering_engine/branding.py:add_credit_label` |
+| 10 | **YouTube export bridge** — pipeline output auto-copied into `Youtube_Upload/videos/` as `stitched_video_set_<N>.{mp4,txt,png}` so the standalone `Youtube_Upload/youtubeupload4.py` uploader picks it up unchanged. | `youtube_upload_export.py` |
+| 11 | **OAuth multi-path search** — in-pipeline uploader searches both root and `Youtube_Upload/` for `client_secret(s).json` and reuses cached `token.pickle` from the standalone uploader. | `youtube_uploader.py` |
+| 12 | **Selective music + lower volume** — `MUSIC_PLAYBACK_MODE` flag (default `selective`); music plays only on intro/outro stings + scenes whose `music_mood` is in `MUSIC_HIGHLIGHT_MOODS` (default: `tense`). `MUSIC_VOLUME_DB` lowered −28 → −36 dB. Drops continuous music coverage from ~100 % to ~8 % of typical video length. | `config.py`, `semantic_audio.py:_build_music_track_from_manifest` |
+| 13 | **Hybrid layout collision rule** — `_avoid_collision` two-state: full diagram OR text-on-card; never "diagram + text awkwardly stacked". Path 1 relocates text to a vacant region; Path 2 hides the topology and centers the text on a fully opaque card with isometric shadow. | `rendering_engine/presentation.py` |
+| 14 | **Disabled keyword burst** — built and shipped behind `ENABLE_KEYWORD_BURST=false`. Even relocated to a vacant region the giant dimmed background word competed with content. Kept for future experiments. | `rendering_engine/keyword_overlay.py` |
+| 15 | **Cinematic SFX** — `flash_cut` → `suspenseful_boom.mp3`, `zoom_punch` / `glitch_transition` → `cinematic_impact_hit.mp3`, `scene_transition` upgraded to `whoosh_cinematic.mp3`. | `assets/sfx/`, `semantic_audio.SFX_MAP` |
+
+### Track 6 — Manifest-driven AV alignment (May 2026, fix for chronic ~17s drift)
+
+The structural fix for narration/subtitle desync that grew across long videos.
+
+**Root cause** (memory: `feedback_av_sync_drift.md`): two independent timelines with no shared source of truth for scene boundaries. Audio mux assumed each scene ran for `audio_dur + pause_after + SCENE_GAP_SECONDS`; renderer actually took `max(actions_elapsed, audio_dur + pause_after − 0.30) + 0.30 + 0.15`. When LLM-emitted action `run_time`s exceeded the budget, every scene overshot — drift accumulated to 17.12 s by the end of a 19-scene render. The `_pad_audio_to_video` band-aid hid the symptom at t=0 and made it maximal at t=end.
+
+**Fix:**
+
+| # | Feature | Modules |
+|---|---|---|
+| 16 | **Renderer manifest** — `run_full_video_construct` writes `scene_timings.json` with each scene's actual `video_start_seconds` and `video_end_seconds`. Path coordinated via `SEMANTIC_TIMING_MANIFEST` env var. | `rendering_engine/full_video_scene.py`, `rendering_engine/engine.py` |
+| 17 | **Manifest-aligned audio mux** — `build_narration_track_from_manifest` overlays each scene's TTS at exactly its declared `video_start_seconds`. Total length = `manifest.total_video_duration` by construction. SFX positioned at scene-relative action offsets. Music swaps at the manifest's scene boundaries. Falls back to legacy cumulative builder only if the manifest is missing (defensive). | `semantic_audio.py:build_narration_track_from_manifest` |
+| 18 | **Drift-invariant tests** — irregular per-scene boundaries (simulating arbitrary overshoots) prove narration always lands at declared positions. 10 new tests in `tests/test_manifest_aligned_audio.py`. | `tests/` |
+
+**Why subtitles stay aligned for free:** Track 5's subtitle scheduler already anchored to `scene.renderer.time` inside the renderer, which is the exact same source as `video_start_seconds` in the manifest. Once narration aligns with the renderer's clock, subtitles align with narration automatically.
+
+### Track 7 — Shorts pipeline (May 2026)
+
+Vertical 50-second 9:16 short for YouTube Shorts / Instagram Reels / TikTok generated alongside (or instead of) the long-form. Designed to drive cross-platform traffic to the long-form video.
+
+| # | Feature | Modules |
+|---|---|---|
+| 19 | **Viral 4-scene prompt** — hard structure (HOOK 3-5s / TENSION 10-15s / PAYOFF 20-25s / CTA 5-7s), word-count ceilings, forbidden openers ("Today we'll learn", "In this video"). | `prompts/shorts.py:SHORTS_SYSTEM_PROMPT` |
+| 20 | **Vertical action whitelist** — 11 actions safe on a 1080×1920 canvas. Anything else (topology, sequence, comparisons, tables, charts, cloud, layer stacks) stripped before Pydantic validation so the LLM cannot violate the layout invariant. | `prompts/shorts.py:VERTICAL_ACTION_WHITELIST` |
+| 21 | **Shorts orchestrator** — single LLM call distills topic into a `<=4`-scene `EnrichedVideoScript`. Cached under `shorts::<topic>` namespace so the short cache doesn't collide with the long-form cache. | `shorts_orchestrator.py` |
+| 22 | **Vertical Manim runner** — `ShortsSemanticVideo` (MovingCameraScene) reshapes `manim.config.frame_width=8.0` and `frame_height=14.222` at module load. Forces `data["mode"] = "shorts"` so the construct skips intro/title/outro/header/decorations. | `rendering_engine/shorts_runner.py` |
+| 23 | **Shorts render entrypoint** — `render_shorts_video()` invokes Manim with `-r 1080,1920 --fps 30`, copies the manifest. | `rendering_engine/engine.py:render_shorts_video` |
+| 24 | **Shared construct, two modes** — `run_full_video_construct` reads `data["mode"]`; in `"shorts"` skips the chrome that would burn ~9s of the 50s budget. Single function, two pipelines. | `rendering_engine/full_video_scene.py` |
+| 25 | **Platform-named output copies** — `youtube_short.mp4`, `instagram_reel.mp4`, `tiktok.mp4` — same content, renamed for upload convenience. Gated by `SHORTS_EMIT_PLATFORM_COPIES`. | `main.py:run_shorts_pipeline` |
+| 26 | **CLI flags** — `--shorts` (long-form + short) and `--shorts-only` (skip long-form). | `main.py` |
+| 27 | **Inherits Tracks 5+6 for free** — whisper-aligned subtitles, manifest-driven audio mux, theme system, ambient particles, selective music — all unchanged for shorts. Only the prompt and the camera frame differ. | (everywhere) |
+
+### Test count
+
+148 tests at end of Track 6 → **158 tests at end of Track 7**, all passing in ~1.5 s.
+
+### Schema additions (since v3.0)
+
+`EnrichedScene`:
+- `whisper_words: list[dict]` — Whisper word-level timestamps populated after TTS
+
+`scene_timings.json` (new artifact, not part of Pydantic schema):
+- `intro_card_end_seconds`, `title_card_end_seconds`, `outro_start_seconds`, `outro_end_seconds`, `total_video_duration`
+- `scenes: [{scene_id, video_start_seconds, video_end_seconds, audio_duration, pause_after}, …]`
+
+### New env flags (since v3.0)
+
+```bash
+# AV alignment
+ENABLE_SUBTITLE_ALIGNMENT=True
+
+# Visual polish
+ENABLE_AMBIENT_DECOR=True            AMBIENT_DECOR_COUNT=6
+ENABLE_BACKGROUND_PARTICLES=True     BACKGROUND_PARTICLE_COUNT=22
+ENABLE_ISOMETRIC_SHADOW=True
+ENABLE_KEYWORD_BURST=False           # disabled by user feedback
+ENABLE_3D_TOPOLOGY=True              # default flipped from False
+ENABLE_REMOTION_CHROME=False         # default flipped — Manim already handles intro/outro
+
+# Music
+MUSIC_VOLUME_DB=-36                  # was -28
+MUSIC_PLAYBACK_MODE=selective        # selective | continuous | off
+MUSIC_HIGHLIGHT_MOODS=tense          # comma-separated music_mood values
+MUSIC_INCLUDE_INTRO_OUTRO_BEDS=True
+
+# YouTube bridge
+ENABLE_YOUTUBE_UPLOAD_EXPORT=True
+
+# Shorts
+ENABLE_SHORTS=False                  # opt-in via CLI flag
+SHORTS_TARGET_DURATION=50.0
+SHORTS_EMIT_PLATFORM_COPIES=True
+```
+
+---
+
 ## v3.0 — Engagement Upgrade (Apr 2026)
 
 Goes from "polished retention-focused explainer" to "broadcast-grade YouTube educational channel" — adds AI vision QA, branding chrome, multi-voice + multi-language, AI imagery, real D3 charts, pattern interrupts, and full distribution automation. **All features are opt-in via env flags and degrade gracefully when dependencies are missing.**

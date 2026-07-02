@@ -38,9 +38,11 @@ from rendering_engine.styles import (
     CODE_FONT_SIZE,
     FADE_DURATION,
     FONT_MONO,
+    FONT_SANS,
     HIGHLIGHT,
     LABEL_FONT_SIZE,
     MEDIUM_PAUSE,
+    MIN_FONT_BODY,
     MUTED,
     PRIMARY,
     SAFE_AREA_BOTTOM,
@@ -63,35 +65,82 @@ if TYPE_CHECKING:
 
     from rendering_engine.engine import SceneState
 
+def _word_wrap_for_shorts(text: str, max_chars_per_line: int = 18) -> str:
+    """Wrap *text* to multiple lines so we never trigger Manim's
+    ``set_width()`` auto-shrink (which scales the font down).
+
+    Preserves word boundaries.  Returns the text with ``\\n`` inserted at
+    natural break points, or the original text if it already fits.
+    """
+    text = (text or "").strip()
+    if len(text) <= max_chars_per_line:
+        return text
+
+    words = text.split()
+    lines: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for w in words:
+        added = len(w) + (1 if current else 0)
+        if current and current_len + added > max_chars_per_line:
+            lines.append(" ".join(current))
+            current = [w]
+            current_len = len(w)
+        else:
+            current.append(w)
+            current_len += added
+    if current:
+        lines.append(" ".join(current))
+    return "\n".join(lines)
+
+
 _anim_cycle_counter = 0
 
 
-def _next_title_anim(mob):
-    """Cycle through varied entrance animations for titles."""
+def _next_title_anim(mob, shorts_mode: bool = False):
+    """Cycle through varied entrance animations for titles, spring-eased.
+
+    In shorts mode, EVERY entrance uses spring physics (no Write variant
+    which has linear motion).  A short-form viewer scrolls past in
+    seconds — they don't get the benefit of cycle variety, so we make
+    the bouncy arrival the default for max visible energy.
+    """
+    from rendering_engine.easing import spring_out
     global _anim_cycle_counter
     _anim_cycle_counter += 1
     choice = _anim_cycle_counter % 4
+
+    if shorts_mode:
+        # Force spring on every entrance — no Write (linear) variant.
+        if choice in (0, 1):
+            return GrowFromCenter(mob, run_time=0.70, rate_func=spring_out)
+        elif choice == 2:
+            return FadeIn(mob, shift=DOWN * 0.4, run_time=0.65, rate_func=spring_out)
+        else:
+            return FadeIn(mob, shift=UP * 0.4, run_time=0.65, rate_func=spring_out)
+
     if choice == 0:
         return Write(mob, run_time=0.7)
     elif choice == 1:
-        return GrowFromCenter(mob, run_time=0.6)
+        return GrowFromCenter(mob, run_time=0.6, rate_func=spring_out)
     elif choice == 2:
-        return FadeIn(mob, shift=DOWN * 0.25, run_time=0.5)
+        return FadeIn(mob, shift=DOWN * 0.25, run_time=0.55, rate_func=spring_out)
     else:
-        return FadeIn(mob, shift=RIGHT * 0.4, run_time=0.5)
+        return FadeIn(mob, shift=RIGHT * 0.4, run_time=0.55, rate_func=spring_out)
 
 
 def _next_bullet_anim(mob, index: int):
-    """Varied entrance for progressive bullet items."""
+    """Varied entrance for progressive bullet items, spring-eased."""
+    from rendering_engine.easing import spring_out
     choice = index % 4
     if choice == 0:
-        return FadeIn(mob, shift=RIGHT * 0.35, run_time=0.4)
+        return FadeIn(mob, shift=RIGHT * 0.35, run_time=0.45, rate_func=spring_out)
     elif choice == 1:
-        return FadeIn(mob, shift=UP * 0.2, run_time=0.4)
+        return FadeIn(mob, shift=UP * 0.2, run_time=0.45, rate_func=spring_out)
     elif choice == 2:
-        return GrowFromCenter(mob, run_time=0.45)
+        return GrowFromCenter(mob, run_time=0.50, rate_func=spring_out)
     else:
-        return FadeIn(mob, shift=LEFT * 0.15 + UP * 0.1, run_time=0.4)
+        return FadeIn(mob, shift=LEFT * 0.15 + UP * 0.1, run_time=0.45, rate_func=spring_out)
 
 
 def _post_title_flourish(scene, title_mob):
@@ -120,15 +169,205 @@ def _with_shadow(content: VGroup) -> VGroup:
 
 
 def _clamp_to_safe_area(group: VGroup) -> None:
-    """Clamp a content group so its top stays below the topic header and
-    scale down if it exceeds the safe area height."""
+    """Clamp a content group so it fits inside the safe area on all sides."""
+    from rendering_engine.styles import SAFE_AREA_LEFT, SAFE_AREA_RIGHT
+
+    safe_height = SAFE_AREA_TOP - SAFE_AREA_BOTTOM
+    safe_width = SAFE_AREA_RIGHT - SAFE_AREA_LEFT
+
+    # Scale down to fit width (file22-style left-edge-clipped comparison bug:
+    # 2-column layouts with long titles + 1.5-unit gutter often exceed
+    # safe_width, then no shift can recover them — they need a scale).
+    if group.width > safe_width:
+        group.scale(safe_width / group.width)
+
+    # Top clamp
     g_top = group.get_top()[1]
     if g_top > SAFE_AREA_TOP:
         group.shift([0, SAFE_AREA_TOP - g_top, 0])
-    safe_height = SAFE_AREA_TOP - SAFE_AREA_BOTTOM
+
+    # Height scale + recenter vertically if still too tall
     if group.height > safe_height:
         group.scale(safe_height / group.height)
         group.move_to([group.get_center()[0], (SAFE_AREA_TOP + SAFE_AREA_BOTTOM) / 2, 0])
+
+    # Horizontal recenter if escaped sides
+    g_left = group.get_left()[0]
+    g_right = group.get_right()[0]
+    if g_left < SAFE_AREA_LEFT:
+        group.shift([SAFE_AREA_LEFT - g_left, 0, 0])
+    elif g_right > SAFE_AREA_RIGHT:
+        group.shift([SAFE_AREA_RIGHT - g_right, 0, 0])
+
+
+def fit_text_to_box(
+    text: str,
+    max_width: float,
+    max_height: float,
+    *,
+    ideal_font: int = BODY_FONT_SIZE,
+    min_font: int = MIN_FONT_BODY,
+    color=MUTED,
+    weight: str = "NORMAL",
+    line_spacing: float = 1.3,
+) -> Text | None:
+    """Build a Text mobject that wraps and fits inside ``(max_width, max_height)``.
+
+    Strategy:
+      1. Try ``ideal_font`` with word-wrap targeting ``max_width``.
+      2. Shrink font in 2pt steps down to ``min_font`` if it's too tall.
+      3. Return ``None`` if even the smallest size doesn't fit — caller
+         should split the content into multiple scenes rather than render
+         unreadable text.
+
+    The character-width estimate is heuristic (sans-serif at ~0.0062 manim
+    units per pt-char-width) but consistently err's slightly toward more
+    aggressive wrapping, which is the failure mode we want.
+    """
+    import textwrap as _tw
+
+    def _chars_per_line(font_size: int) -> int:
+        char_w = max(0.0001, font_size * 0.0062)
+        return max(10, int(max_width / char_w))
+
+    for fs in range(ideal_font, min_font - 1, -2):
+        cpl = _chars_per_line(fs)
+        wrapped_lines = _tw.wrap(text, width=cpl) or [text]
+        wrapped = "\n".join(wrapped_lines)
+        mob = Text(wrapped, font_size=fs, color=color, weight=weight,
+                   line_spacing=line_spacing)
+        if mob.width > max_width:
+            mob.set_width(max_width)
+        if mob.height <= max_height:
+            return mob
+    return None
+
+
+def _avoid_collision(scene, state, group: VGroup, margin: float = 0.20) -> VGroup:
+    """If *group* would overlap visible diagram objects, try in order:
+
+    1. Relocate to the largest vacant region (above / below / left / right
+       of the diagram), scale to fit, wrap in a card.
+    2. If no region big enough exists, hide the colliding persistent
+       objects entirely for the duration of this slide. The next scene's
+       ``_auto_toggle_persistent`` will restore them when needed.
+
+    The two-state rule (per user feedback): full diagram OR hidden — never
+    "diagram + text awkwardly stacked". Always wrap relocated/hidden-bg
+    text in a Manim card so it reads as a contained block.
+    """
+    from rendering_engine.engine import BBox
+
+    bbox = BBox(
+        group.get_left()[0],
+        group.get_right()[0],
+        group.get_bottom()[1],
+        group.get_top()[1],
+    )
+    colliders = state.overlaps_any(bbox, margin=margin)
+    if not colliders:
+        return _wrap_in_card(scene, group, opaque=False)
+
+    region = state.find_largest_vacant_region(min_width=2.5, min_height=0.8)
+
+    # ------------------------------------------------------------------
+    # Path 1: usable vacant region exists — relocate + scale + card.
+    # ------------------------------------------------------------------
+    if region is not None:
+        avail_w = (region.right - region.left) - 2 * margin
+        avail_h = (region.top - region.bottom) - 2 * margin
+        if avail_w > 0 and avail_h > 0:
+            scale = min(
+                1.0,
+                avail_w / max(0.1, group.width),
+                avail_h / max(0.1, group.height),
+            )
+            if scale < 0.99:
+                group.scale(max(0.65, scale * 0.97))
+
+            target_x = (region.left + region.right) / 2
+            target_y = (region.bottom + region.top) / 2
+            cx, cy = group.get_center()[0], group.get_center()[1]
+            group.shift([target_x - cx, target_y - cy, 0])
+
+            # Re-check after relocation — if the region was estimated and
+            # the text actually still overlaps something, fall through to
+            # path 2 instead of leaving a broken layout on screen.
+            new_bbox = BBox(
+                group.get_left()[0], group.get_right()[0],
+                group.get_bottom()[1], group.get_top()[1],
+            )
+            if not state.overlaps_any(new_bbox, margin=margin):
+                return _wrap_in_card(scene, group, opaque=True)
+
+    # ------------------------------------------------------------------
+    # Path 2: canvas too crowded — hide the persistent topology, recentre
+    # the text to mid-canvas, and wrap in a fully opaque card.  The next
+    # scene's _auto_toggle_persistent restores topology if still needed.
+    # ------------------------------------------------------------------
+    try:
+        state.hide_persistent(scene)
+    except Exception:
+        pass
+
+    # Recenter the (possibly already scaled) group to the canvas centre.
+    cx, cy = group.get_center()[0], group.get_center()[1]
+    group.shift([0 - cx, 0 - cy, 0])
+    return _wrap_in_card(scene, group, opaque=True)
+
+
+def _wrap_in_card(
+    scene, group: VGroup, *, opaque: bool,
+    min_width: float | None = None,
+    min_height: float | None = None,
+) -> VGroup:
+    """Wrap *group* in a rounded-rect card with isometric drop-shadow.
+
+    ``opaque=True`` uses near-opaque fill so the card occludes anything
+    behind it cleanly (used when the text was relocated or topology was
+    hidden).  ``opaque=False`` is a subtle border-only treatment used
+    when no overlap was detected.
+
+    ``min_width`` / ``min_height`` enforce a minimum card size — useful in
+    shorts mode where a one-line text block would otherwise produce a thin
+    card lost in the canvas.  When the natural card is smaller than the
+    minimum, the card grows but the inner content stays centered.
+    """
+    from manim import FadeIn, RoundedRectangle
+
+    from rendering_engine.styles import make_isometric_shadow
+
+    if opaque:
+        w = max(group.width + 0.55, min_width or 0.0)
+        h = max(group.height + 0.45, min_height or 0.0)
+        card = RoundedRectangle(
+            width=w,
+            height=h,
+            corner_radius=0.18 if (min_width or min_height) else 0.12,
+            stroke_width=2.0 if (min_width or min_height) else 1.5,
+            stroke_color=MUTED,
+            stroke_opacity=0.55,
+            fill_color=BG_COLOR,
+            fill_opacity=0.96,
+        )
+    else:
+        card = RoundedRectangle(
+            width=group.width + 0.4,
+            height=group.height + 0.3,
+            corner_radius=0.10,
+            stroke_width=1.0,
+            stroke_color=MUTED,
+            stroke_opacity=0.30,
+            fill_color=BG_COLOR,
+            fill_opacity=0.0,
+        )
+    card.move_to(group.get_center())
+    card_with_shadow = make_isometric_shadow(card, depth=0.10, layers=2, opacity=0.30)
+    try:
+        scene.play(FadeIn(card_with_shadow), run_time=0.20)
+    except Exception:
+        pass
+    return VGroup(card_with_shadow, group)
 
 
 # ---------------------------------------------------------------------------
@@ -139,33 +378,133 @@ def render_show_text_block(scene: ManimScene, state: SceneState, action) -> None
     parts = []
     title_mob = None
 
+    # Shorts mode: BIG, bold, dominant text on a 9:16 canvas — kept narrow
+    # enough to clear the right-side button column (Like / Comment / Share)
+    # that platform UIs overlay on the right ~10% of the canvas.  Phone
+    # comfortable-read minimum is ~70pt; current scales produce
+    # title=112pt body=68pt bullet=62pt — all comfortably above threshold.
+    is_shorts = getattr(state, "mode", "long") == "shorts"
+    title_size = int(TITLE_FONT_SIZE * 2.8) if is_shorts else TITLE_FONT_SIZE   # 40 → 112
+    body_size = int(BODY_FONT_SIZE * 2.6) if is_shorts else BODY_FONT_SIZE      # 26 → 68
+    body_max_width = 6.6 if is_shorts else 10.0
+    body_break_threshold = 40 if is_shorts else 100
+
     if action.title:
-        title_mob = Text(action.title, font_size=TITLE_FONT_SIZE, color=PRIMARY)
+        # Shorts: word-wrap the title BEFORE creating the Text mobject so
+        # we never trigger Manim's set_width() auto-shrink (which scales
+        # the FONT down, defeating the whole point of a 112pt headline).
+        # Long-form keeps the original behavior.  22 chars/line at 112pt
+        # ≈ 1.5 lines for typical titles — fits the canvas without making
+        # the text feel like a thin column.
+        title_text = action.title
+        if is_shorts:
+            title_text = _word_wrap_for_shorts(title_text, max_chars_per_line=22)
+        title_mob = Text(
+            title_text, font_size=title_size, color=PRIMARY, weight="BOLD",
+        )
+        # Defensive: if even after wrapping the title is too wide (single
+        # very long word), fall back to set_width.  Only triggers in edge
+        # cases — most titles wrap cleanly to multiple lines instead.
+        max_title_width = 6.6 if is_shorts else 12.0
+        if title_mob.width > max_title_width:
+            title_mob.set_width(max_title_width)
         parts.append(title_mob)
 
     if action.body:
+        body_text = action.body
+        if is_shorts:
+            # 32 chars/line at 67pt body ≈ 4-5 words per line.  Was 24
+            # which produced "TLS handshake sets / up secret codes / before
+            # your data ever leaves" — 2-3 words per line, looked like a
+            # poem column instead of an infographic body.
+            body_text = _word_wrap_for_shorts(body_text, max_chars_per_line=32)
         body = Text(
-            action.body, font_size=BODY_FONT_SIZE, color=MUTED,
-            line_spacing=1.4,
+            body_text, font_size=body_size, color=MUTED,
+            line_spacing=1.4, weight="MEDIUM" if is_shorts else "NORMAL",
         )
-        if len(action.body) > 100:
-            body.set_width(min(body.width, 10))
+        # Long-form keeps the auto-shrink fallback; shorts wrap above so
+        # this branch should not fire for them, but defensive cap stays.
+        if not is_shorts and len(action.body) > body_break_threshold:
+            body.set_width(min(body.width, body_max_width))
+        elif is_shorts and body.width > body_max_width:
+            body.set_width(body_max_width)
         parts.append(body)
 
     if not parts:
         return
 
-    content = VGroup(*parts).arrange(DOWN, buff=0.4)
+    buff = 0.6 if is_shorts else 0.4
+    content = VGroup(*parts).arrange(DOWN, buff=buff)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
+    if not is_shorts:
+        # Long-form: route through collision-avoidance + card wrap.
+        group = _avoid_collision(scene, state, group)
+    else:
+        # Shorts: text sits DIRECTLY on the mood panel.  Force white fill
+        # + dark stroke (acts as a drop shadow / outline) so titles read
+        # clearly on bright panels — neon yellow CTA in particular has
+        # weak white-on-yellow contrast without the stroke.
+        from manim import WHITE as _WHITE
+        for part in parts:
+            try:
+                part.set_color(_WHITE)
+                # Thin dark outline = WCAG-compliant contrast on any
+                # panel color (red, orange, blue, gold).
+                part.set_stroke(color="#000000", width=2.0, opacity=0.55, background=True)
+            except Exception:
+                # background=True only on Manim VMobjects; fall back.
+                try:
+                    part.set_stroke(color="#000000", width=2.0, opacity=0.55)
+                except Exception:
+                    pass
+        group.move_to([0, -0.5, 0])
     state.register(f"text_{action.title or 'block'}", group)
 
     if title_mob and len(parts) > 1:
-        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        scene.play(_next_title_anim(title_mob, shorts_mode=is_shorts), run_time=0.6)
         _post_title_flourish(scene, title_mob)
-        scene.play(FadeIn(parts[1], shift=UP * 0.15), run_time=0.5)
+        scene.play(FadeIn(parts[1], shift=UP * 0.15, rate_func=_spring_or_smooth(is_shorts)), run_time=0.5)
     else:
-        scene.play(_next_title_anim(parts[0]), run_time=0.6)
+        scene.play(_next_title_anim(parts[0], shorts_mode=is_shorts), run_time=0.6)
+
+    # Shorts polish: glow halo cycles through warning / danger / success /
+    # action colors per scene, NOT the same accent every time.  Combined
+    # with the dark text-stroke (added below) the title both pops AND
+    # has WCAG-readable contrast on bright panel colors like neon yellow.
+    if is_shorts and title_mob is not None:
+        try:
+            from rendering_engine.micro_animations import play_glow_pulse
+            halo_color = _shorts_halo_color()
+            play_glow_pulse(scene, title_mob, color=halo_color, duration=0.6)
+        except Exception:
+            pass
+
+
+# Per-scene halo colors that cycle through the emotional arc.
+_SHORTS_HALO_PALETTE = (
+    "#ffd23f",   # 0: yellow — caution / warning (hook)
+    "#ff3b30",   # 1: red — danger / failure (tension)
+    "#3fdca1",   # 2: green — success / verification (payoff)
+    "#ffcc00",   # 3: gold — action / reward (CTA)
+)
+_halo_cycle_counter = 0
+
+
+def _shorts_halo_color() -> str:
+    """Return the next halo color in the warning→danger→success→action cycle."""
+    global _halo_cycle_counter
+    color = _SHORTS_HALO_PALETTE[_halo_cycle_counter % len(_SHORTS_HALO_PALETTE)]
+    _halo_cycle_counter += 1
+    return color
+
+
+def _spring_or_smooth(is_shorts: bool):
+    """Pick spring for shorts, default smooth for long-form."""
+    if is_shorts:
+        from rendering_engine.easing import spring_out
+        return spring_out
+    return None  # let Manim use its default
 
 
 # ---------------------------------------------------------------------------
@@ -176,28 +515,75 @@ def render_show_bullet_list(scene: ManimScene, state: SceneState, action) -> Non
     parts = []
     title_mob = None
 
+    # Shorts mode: bigger fonts so the bullet card fills the vertical canvas.
+    # Title at 32 × 2.3 = 74pt; bullets at 26 × 2.4 = 62pt.  Both above
+    # the 70pt phone-comfort threshold for the title and just under for
+    # bullets (kept smaller so the title still reads as the header).
+    is_shorts = getattr(state, "mode", "long") == "shorts"
+    bullet_title_size = int(SUBTITLE_FONT_SIZE * 2.3) if is_shorts else SUBTITLE_FONT_SIZE
+
     if action.title:
-        title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        title_mob = Text(
+            action.title, font_size=bullet_title_size, color=PRIMARY,
+            weight="BOLD" if is_shorts else "NORMAL",
+        )
         parts.append(title_mob)
 
+    bullet_size = int(BODY_FONT_SIZE * 2.4) if is_shorts else BODY_FONT_SIZE   # 26 → 62
+    bullet_max_w = 6.6 if is_shorts else 10.0
     bullets = []
     for item_text in action.items:
-        bullet = Text(f"  •  {item_text}", font_size=BODY_FONT_SIZE, color=MUTED)
-        if bullet.width > 10:
-            bullet.set_width(10)
+        bullet = Text(
+            f"  •  {item_text}", font_size=bullet_size, color=MUTED,
+            weight="MEDIUM" if is_shorts else "NORMAL",
+        )
+        if bullet.width > bullet_max_w:
+            bullet.set_width(bullet_max_w)
         bullets.append(bullet)
 
-    bullet_group = VGroup(*bullets).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
+    bullet_buff = 0.4 if is_shorts else 0.25
+    bullet_group = VGroup(*bullets).arrange(DOWN, aligned_edge=LEFT, buff=bullet_buff)
     parts.append(bullet_group)
 
-    content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
+    parts_buff = 0.7 if is_shorts else 0.5
+    content = VGroup(*parts).arrange(DOWN, aligned_edge=LEFT, buff=parts_buff)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
+    if not is_shorts:
+        group = _avoid_collision(scene, state, group)
+    else:
+        # Shorts: bullets sit DIRECTLY on the mood panel — no dark card
+        # chrome (the residual rectangle behind bullets in earlier renders
+        # came from _wrap_in_card which we deliberately skip here).
+        # White fill + dark stroke for contrast on bright panels.
+        from manim import WHITE as _WHITE
+        try:
+            if title_mob is not None:
+                title_mob.set_color(_WHITE)
+                try:
+                    title_mob.set_stroke(color="#000000", width=2.5, opacity=0.55, background=True)
+                except Exception:
+                    title_mob.set_stroke(color="#000000", width=2.5, opacity=0.55)
+            for bullet in bullets:
+                bullet.set_color(_WHITE)
+                try:
+                    bullet.set_stroke(color="#000000", width=1.5, opacity=0.55, background=True)
+                except Exception:
+                    bullet.set_stroke(color="#000000", width=1.5, opacity=0.55)
+        except Exception:
+            pass
+        group.move_to([0, -0.5, 0])
     state.register(f"bullets_{action.title or 'list'}", group)
 
     if title_mob:
-        scene.play(_next_title_anim(title_mob), run_time=0.6)
+        scene.play(_next_title_anim(title_mob, shorts_mode=is_shorts), run_time=0.6)
         _post_title_flourish(scene, title_mob)
+        if is_shorts:
+            try:
+                from rendering_engine.micro_animations import play_glow_pulse
+                play_glow_pulse(scene, title_mob, color=_shorts_halo_color(), duration=0.55)
+            except Exception:
+                pass
 
     if action.progressive:
         for i, bullet in enumerate(bullets):
@@ -218,31 +604,75 @@ _CODE_SCROLL_SPEED = 1.6
 
 
 def _build_code_lines(lines: list[str], max_h: float):
-    """Build code line mobjects, auto-reducing font if too many lines."""
+    """Build code line mobjects sized so the whole block fits in *max_h*.
+
+    Manim doesn't clip child mobjects to a parent bounding box, so the
+    previous "scroll if too tall" path produced visually scrambled output:
+    the scroll animation shifted lines up but the off-box ones remained
+    visible at their new positions, overlapping the in-box ones.
+
+    Instead: pick a font size and per-line buffer that GUARANTEES the
+    block fits inside ``max_h``. If the smallest readable size still
+    overflows, the renderer's scroll fallback handles it (and even there
+    we now hide the off-box lines).
+    """
     from rendering_engine.styles import WHITE
 
-    n = len(lines)
-    font_size = CODE_FONT_SIZE
-    if n > 18:
-        font_size = max(12, CODE_FONT_SIZE - 6)
-    elif n > 12:
-        font_size = max(14, CODE_FONT_SIZE - 4)
-    elif n > 8:
-        font_size = max(16, CODE_FONT_SIZE - 2)
+    n = max(1, len(lines))
+    target_h = max(0.5, max_h - 0.3)  # leave room for buffer/border
+
+    # Find a (font_size, buff) that fits. Search from ideal downward.
+    chosen_font = CODE_FONT_SIZE
+    chosen_buff = 0.12
+    for font_size, buff in (
+        (CODE_FONT_SIZE, 0.14),
+        (CODE_FONT_SIZE, 0.12),
+        (CODE_FONT_SIZE - 2, 0.12),
+        (CODE_FONT_SIZE - 4, 0.10),
+        (CODE_FONT_SIZE - 6, 0.08),
+        (CODE_FONT_SIZE - 8, 0.07),
+        (12, 0.06),
+    ):
+        if font_size < 12:
+            continue
+        # rough Manim line height ≈ font_size * 0.018 + tiny margin
+        approx_line_h = font_size * 0.018 + 0.05
+        approx_total = n * approx_line_h + (n - 1) * buff
+        if approx_total <= target_h:
+            chosen_font, chosen_buff = font_size, buff
+            break
+
+    # First, build a reference line so we can measure proper row height.
+    # Empty / whitespace-only lines render as ~zero-height mobjects in Manim
+    # (even " " is shorter than a normal line), which collapses arrange()'s
+    # row spacing and causes neighbouring code lines to overlap on screen.
+    # We use the reference height for any blank line so the row takes its
+    # full vertical slot but stays invisible.
+    from manim import Rectangle
+    ref = Text("Ag", font_size=chosen_font, font=FONT_MONO, color=WHITE)
+    ref_h = ref.height
 
     code_mobs = []
     for line_text in lines:
-        lm = Text(line_text, font_size=font_size, font=FONT_MONO, color=WHITE)
-        lm.set_opacity(0.88)
+        if line_text.strip():
+            lm = Text(line_text, font_size=chosen_font, font=FONT_MONO, color=WHITE)
+            lm.set_opacity(0.88)
+        else:
+            # Invisible spacer with proper line height so arrange() lays out
+            # subsequent lines at the correct y-offset.
+            lm = Rectangle(width=0.01, height=ref_h, stroke_width=0, fill_opacity=0)
         if lm.width > _CODE_LINE_MAX_WIDTH:
             lm.set_width(_CODE_LINE_MAX_WIDTH)
         code_mobs.append(lm)
 
-    buff = 0.10 if n > 12 else 0.12
-    group = VGroup(*code_mobs).arrange(DOWN, aligned_edge=LEFT, buff=buff)
+    group = VGroup(*code_mobs).arrange(DOWN, aligned_edge=LEFT, buff=chosen_buff)
 
     if group.width > _CODE_MAX_WIDTH:
         group.scale_to_fit_width(_CODE_MAX_WIDTH)
+
+    # Final safety: if our heuristic was wrong, scale the entire group to fit.
+    if group.height > target_h:
+        group.scale_to_fit_height(target_h)
 
     return code_mobs, group
 
@@ -250,11 +680,18 @@ def _build_code_lines(lines: list[str], max_h: float):
 def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None:
     from rendering_engine.styles import WHITE
 
+    is_shorts = getattr(state, "mode", "long") == "shorts"
     parts = []
     title_mob = None
 
     if action.title:
-        title_mob = Text(action.title, font_size=SUBTITLE_FONT_SIZE, color=PRIMARY)
+        # Code-block title: 32 × 1.9 = 61pt in shorts (was 48pt — too small).
+        title_size = int(SUBTITLE_FONT_SIZE * 1.9) if is_shorts else SUBTITLE_FONT_SIZE
+        title_mob = Text(
+            action.title, font_size=title_size,
+            color=WHITE if is_shorts else PRIMARY,
+            weight="BOLD" if is_shorts else "NORMAL",
+        )
         if title_mob.width > _CODE_MAX_WIDTH:
             title_mob.set_width(_CODE_MAX_WIDTH)
         parts.append(title_mob)
@@ -268,6 +705,15 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
     needs_scroll = code_group.height > max_h
     if not needs_scroll and code_group.height > max_h * 0.92:
         code_group.scale_to_fit_height(max_h * 0.92)
+        needs_scroll = False
+
+    # _build_code_lines now adaptively sizes content to fit, so needs_scroll
+    # should be False in practice. If it somehow isn't (e.g. user passes very
+    # long single lines), force the group to scale rather than enter the
+    # scroll path — Manim doesn't clip to a bounding box, so scrolling
+    # produces overlapping text rather than a clean scroll.
+    if needs_scroll:
+        code_group.scale_to_fit_height(max_h * 0.95)
         needs_scroll = False
 
     if needs_scroll:
@@ -315,12 +761,49 @@ def render_show_code_block(scene: ManimScene, state: SceneState, action) -> None
             )
             scene.wait(0.5)
     else:
-        bg = SurroundingRectangle(
-            code_group, color=MUTED, fill_color=BG_COLOR,
-            fill_opacity=0.8, buff=0.3, corner_radius=0.1,
-        )
-        code_with_bg = VGroup(bg, code_group)
-        parts.append(code_with_bg)
+        if is_shorts:
+            # Traffic-light window chrome in shorts mode (macOS-style).
+            # Three colored dots in the top-left + a darker title bar above
+            # the code, on a chunky dark window bg.  Matches the user's
+            # reference visuals (Image 1) where code blocks read as IDE
+            # windows, not floating text on dark.
+            from manim import RoundedRectangle as _RR2, Circle as _Circle
+
+            window_w = max(code_group.width + 0.9, 6.8)
+            chrome_h = 0.55
+            window_h = code_group.height + chrome_h + 0.6
+
+            window_bg = _RR2(
+                width=window_w, height=window_h, corner_radius=0.20,
+                color="#2a2a2e", stroke_width=3,
+                fill_color="#16161a", fill_opacity=0.98,
+            )
+            chrome_bar = _RR2(
+                width=window_w - 0.04, height=chrome_h, corner_radius=0.18,
+                color="#2a2a2e", stroke_width=0,
+                fill_color="#2a2a2e", fill_opacity=1.0,
+            )
+            chrome_bar.align_to(window_bg, UP).shift(DOWN * 0.02)
+
+            dots = VGroup()
+            for i, dot_color in enumerate(("#ff5f56", "#ffbd2e", "#27c93f")):
+                d = _Circle(radius=0.10, color=dot_color, stroke_width=0)
+                d.set_fill(dot_color, opacity=1.0)
+                d.move_to(chrome_bar.get_left() + RIGHT * (0.35 + i * 0.32))
+                dots.add(d)
+
+            code_group.next_to(chrome_bar, DOWN, buff=0.18)
+            code_group.align_to(window_bg, LEFT).shift(RIGHT * 0.35)
+
+            code_with_bg = VGroup(window_bg, chrome_bar, dots, code_group)
+            parts.append(code_with_bg)
+        else:
+            bg = SurroundingRectangle(
+                code_group, color=MUTED, fill_color=BG_COLOR,
+                fill_opacity=0.8, buff=0.3, corner_radius=0.1,
+            )
+            code_with_bg = VGroup(bg, code_group)
+            parts.append(code_with_bg)
 
         content = VGroup(*parts).arrange(DOWN, buff=0.35)
         group = _with_shadow(content)
@@ -387,6 +870,7 @@ def render_show_comparison(scene: ManimScene, state: SceneState, action) -> None
     content = VGroup(*parts).arrange(DOWN, buff=0.5)
     group = _with_shadow(content)
     _clamp_to_safe_area(group)
+    group = _avoid_collision(scene, state, group)
     state.register(f"comparison_{action.title or 'cmp'}", group)
 
     if title_mob:
