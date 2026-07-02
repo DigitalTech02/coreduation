@@ -227,6 +227,26 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         "total_video_duration": 0.0,
     }
 
+    # Flush the manifest to disk at every checkpoint instead of only at the
+    # end.  If construct() crashes mid-render (e.g. a renderer raises in
+    # scene 12 of 16) we still want a manifest reflecting whatever HAS
+    # rendered, so the audio mux can place narration at the right offsets
+    # for the partial silent video the fallback concat produces.  Without
+    # this, main.py falls back to the legacy cumulative estimator whose
+    # narration runs longer than the truncated visuals — ffmpeg -shortest
+    # then clips audio to the silent video's length and the voice-over
+    # races ahead of the visuals.
+    def _flush_manifest() -> None:
+        if not manifest_path:
+            return
+        try:
+            manifest["total_video_duration"] = float(scene.renderer.time)
+            Path(manifest_path).write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning("Could not flush timing manifest: %s", e)
+
     # "long" (default) renders intro card + title card + persistent topic
     # header + corner decorations + outro card.  "shorts" skips all of
     # those — a 50-second vertical short can't afford to spend ~9 seconds
@@ -371,23 +391,26 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             except Exception as e:
                 logger.debug("Subtitle scheduling skipped: %s", e)
 
-        # Phase 2 trigger: warning pulse for dramatic/urgent scenes.  Plays
-        # AT the scene start (after manifest mark, before content actions)
-        # to set the alarmed tone.  Cross-cutting: works in long-form too.
-        try:
-            _voice_mood = (sc.get("voice_mood") or "").strip().lower()
-            if _voice_mood in ("dramatic", "urgent") or any(
-                (a or {}).get("type") == "shake_element" for a in actions
-            ):
-                from rendering_engine.micro_animations import play_warning_pulse
-                play_warning_pulse(
-                    scene,
-                    position=(0.0, 4.6 if is_shorts else 3.2),
-                    scale=1.1 if is_shorts else 0.7,
-                    duration=0.85,
-                )
-        except Exception as e:
-            logger.debug("Warning pulse skipped: %s", e)
+        # Phase 2 trigger: warning pulse for dramatic/urgent scenes.
+        # SHORTS-ONLY.  This calls scene.play() seven times in a row on a
+        # freshly created VGroup, which reliably wedges Manim/Cairo on
+        # Windows for the long-form pipeline.  Shorts only have 4 scenes
+        # so the bug never triggers; long-form skips it entirely.
+        if is_shorts:
+            try:
+                _voice_mood = (sc.get("voice_mood") or "").strip().lower()
+                if _voice_mood in ("dramatic", "urgent") or any(
+                    (a or {}).get("type") == "shake_element" for a in actions
+                ):
+                    from rendering_engine.micro_animations import play_warning_pulse
+                    play_warning_pulse(
+                        scene,
+                        position=(0.0, 4.6),
+                        scale=1.1,
+                        duration=0.85,
+                    )
+            except Exception as e:
+                logger.debug("Warning pulse skipped: %s", e)
 
         for action_dict in actions:
             action = _rebuild_action(action_dict)
@@ -396,62 +419,60 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
             _dispatch_action(scene, state, action)
 
         # Phase 1 trigger: confetti burst on scenes that read as a "reward
-        # / payoff / final takeaway" beat.  In shorts, FORCE on the last
-        # scene (CTA) regardless of voice_mood — guaranteed conversion
-        # reward beat.  Long-form still uses keyword matching.
-        try:
-            from rendering_engine.confetti import play_confetti_burst, should_celebrate
-            should_fire_confetti = should_celebrate(
-                voice_mood=sc.get("voice_mood") or "",
-                scene_id=sc.get("scene_id") or "",
-                narration=narration,
-            )
-            # Force on shorts last scene (CTA)
-            if is_shorts and i == len(scenes) - 1:
-                should_fire_confetti = True
-
-            if should_fire_confetti:
-                origin = (0.0, 1.5) if is_shorts else (0.0, 2.0)
-                play_confetti_burst(
-                    scene,
-                    origin=origin,
-                    count=60 if is_shorts else 38,
-                    spread_x=4.5 if is_shorts else 6.5,
-                    duration=1.4,
+        # / payoff / final takeaway" beat.  SHORTS-ONLY for the same
+        # multi-play() Cairo wedge reason as warning_pulse above.  Shorts
+        # always force this on the last (CTA) scene.
+        if is_shorts:
+            try:
+                from rendering_engine.confetti import play_confetti_burst, should_celebrate
+                should_fire_confetti = should_celebrate(
+                    voice_mood=sc.get("voice_mood") or "",
+                    scene_id=sc.get("scene_id") or "",
+                    narration=narration,
                 )
-        except Exception as e:
-            logger.debug("Confetti burst skipped: %s", e)
+                # Force on shorts last scene (CTA)
+                if i == len(scenes) - 1:
+                    should_fire_confetti = True
 
-        # Phase 2 trigger: success stamp.  In shorts, FORCE on the payoff
-        # scene (3rd of 4) regardless of LLM keywords — every short gets
-        # a guaranteed ✓ moment on its main reveal.  Long-form still
-        # uses keyword matching.
-        try:
-            sid_lower = (sc.get("scene_id") or "").lower()
-            narration_lower = (narration or "").lower()
-            keyword_match = (
-                any(k in sid_lower for k in (
-                    "secured", "verified", "protected", "safe", "done",
-                    "payoff", "reveal", "twist",
-                ))
-                or any(k in narration_lower for k in (
-                    "now you're safe", "your data is protected", "fully encrypted",
-                    "successfully verified",
-                ))
-            )
-            shorts_payoff_scene = (
-                is_shorts and len(scenes) >= 4 and i == len(scenes) - 2
-            )
-            if keyword_match or shorts_payoff_scene:
-                from rendering_engine.micro_animations import play_success_stamp
-                play_success_stamp(
-                    scene,
-                    position=(0.0, 3.5 if is_shorts else 0.0),  # upper area in shorts to avoid card
-                    scale=1.4 if is_shorts else 0.8,
-                    duration=1.0,
+                if should_fire_confetti:
+                    play_confetti_burst(
+                        scene,
+                        origin=(0.0, 1.5),
+                        count=60,
+                        spread_x=4.5,
+                        duration=1.4,
+                    )
+            except Exception as e:
+                logger.debug("Confetti burst skipped: %s", e)
+
+        # Phase 2 trigger: success stamp.  SHORTS-ONLY (same Cairo wedge
+        # reason).  Shorts force this on the payoff scene (3rd of 4) and
+        # also fire on keyword match.
+        if is_shorts:
+            try:
+                sid_lower = (sc.get("scene_id") or "").lower()
+                narration_lower = (narration or "").lower()
+                keyword_match = (
+                    any(k in sid_lower for k in (
+                        "secured", "verified", "protected", "safe", "done",
+                        "payoff", "reveal", "twist",
+                    ))
+                    or any(k in narration_lower for k in (
+                        "now you're safe", "your data is protected", "fully encrypted",
+                        "successfully verified",
+                    ))
                 )
-        except Exception as e:
-            logger.debug("Success stamp skipped: %s", e)
+                shorts_payoff_scene = len(scenes) >= 4 and i == len(scenes) - 2
+                if keyword_match or shorts_payoff_scene:
+                    from rendering_engine.micro_animations import play_success_stamp
+                    play_success_stamp(
+                        scene,
+                        position=(0.0, 3.5),  # upper area to avoid card
+                        scale=1.4,
+                        duration=1.0,
+                    )
+            except Exception as e:
+                logger.debug("Success stamp skipped: %s", e)
 
         # Last scene of a short: fade out the text card / bullet list FIRST
         # (per the marketing-pillar brief: the CTA arrow must be the only
@@ -510,6 +531,9 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
         if manifest["scenes"]:
             manifest["scenes"][-1]["video_end_seconds"] = float(scene.renderer.time)
 
+        # Checkpoint after each completed scene — see _flush_manifest above.
+        _flush_manifest()
+
         if i < n - 1 and SCENE_GAP_SECONDS > 0:
             scene.wait(SCENE_GAP_SECONDS)
 
@@ -519,14 +543,9 @@ def run_full_video_construct(scene: Any, data: dict) -> None:
     manifest["outro_end_seconds"] = float(scene.renderer.time)
     manifest["total_video_duration"] = float(scene.renderer.time)
 
+    _flush_manifest()
     if manifest_path:
-        try:
-            Path(manifest_path).write_text(
-                json.dumps(manifest, indent=2), encoding="utf-8",
-            )
-            logger.info("Wrote scene timing manifest: %s", manifest_path)
-        except Exception as e:
-            logger.warning("Could not write timing manifest: %s", e)
+        logger.info("Wrote scene timing manifest: %s", manifest_path)
 
 
 # ---------------------------------------------------------------------------

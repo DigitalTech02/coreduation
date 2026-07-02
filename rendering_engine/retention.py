@@ -357,18 +357,27 @@ def render_add_callout(scene: "ManimScene", state: "SceneState", action) -> None
     callout = VGroup(bg, lbl)
 
     pos = action.position.lower()
+    # Position dictates which edges of callout and mob the leader line
+    # connects.  Pick BOTH endpoints on the EDGES facing each other so the
+    # leader doesn't dive into the mob (which is what was happening when
+    # the old code passed a non-unit vector to get_edge_center and ended
+    # the line at mob.get_center()).
     if pos == "left":
         callout.next_to(mob, LEFT, buff=0.6)
+        callout_edge_dir, mob_edge_dir = RIGHT, LEFT
     elif pos == "right":
         callout.next_to(mob, RIGHT, buff=0.6)
+        callout_edge_dir, mob_edge_dir = LEFT, RIGHT
     elif pos == "below":
         callout.next_to(mob, DOWN, buff=0.6)
+        callout_edge_dir, mob_edge_dir = UP, DOWN
     else:
         callout.next_to(mob, UP, buff=0.6)
+        callout_edge_dir, mob_edge_dir = DOWN, UP
 
     tip = Line(
-        callout.get_edge_center(-callout.get_center() + mob.get_center()),
-        mob.get_center(),
+        callout.get_critical_point(callout_edge_dir),
+        mob.get_critical_point(mob_edge_dir),
         color=CALLOUT_LINE_COLOR, stroke_width=1.5,
     )
     full_callout = VGroup(callout, tip)

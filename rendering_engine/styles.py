@@ -99,6 +99,15 @@ PACKET_WIDTH = 1.2
 PACKET_MAX_WIDTH = 3.0  # Auto-grow cap when label is long; text scales down past this
 PACKET_HEIGHT = 0.45
 PACKET_SPEED_BASE = 2.0  # Manim units per second
+# Floor + ceiling on packet travel duration regardless of distance.
+# distance/speed alone: a 2-unit hop is over in 1s (too snappy to read)
+# and a 10-unit hop drags 5s.  Clamp keeps both feeling tracked.  User
+# feedback bumped the floor twice — 1.6s still felt "really fast" because
+# fade-in/out steal ~0.3s at each end, leaving only ~1s of actual travel.
+# 2.6s gives the eye time to lock onto the moving rectangle, follow it
+# across the connection line, and read its label before it disappears.
+PACKET_DURATION_MIN = 2.6
+PACKET_DURATION_MAX = 4.0
 
 # ---------------------------------------------------------------------------
 # Connection

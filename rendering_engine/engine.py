@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -74,8 +75,334 @@ class BBox(NamedTuple):
 OUTPUT_DIR = Path("output/video")
 MANIM_QUALITY = os.getenv("MANIM_QUALITY", "m")
 
+# Manim's per-quality output directory under media/videos/<runner>/.
+# Used by the ffmpeg concat fallback to find partial mp4s when Manim's
+# combine_files step crashes (PyAV/Python 3.12 bug).
+MANIM_QUALITY_DIR_MAP = {
+    "l": "480p15",
+    "m": "720p30",
+    "h": "1080p60",
+    "p": "1440p60",
+    "k": "2160p60",
+}
+
 RUNNER = Path(__file__).resolve().parent / "full_video_runner.py"
 RUNNER_CLASS = "FullSemanticVideo"
+
+
+def _run_manim_with_crash_watch(
+    cmd: list[str],
+    log_path: Path,
+    env: dict,
+    timeout: int = 3600,
+    poll_interval: float = 2.0,
+):
+    """Run Manim, monitoring its log for the combine_files crash signature.
+
+    On certain PyAV/Python combos Manim's CLI crashes during the final
+    combine step with a FileNotFoundError on partial_movie_file_list.txt,
+    *and then fails to actually exit* — it wedges in interpreter shutdown
+    waiting on a thread lock that will never release.  ``subprocess.run``
+    blocks forever in that state.
+
+    We tail the log here; when we see the crash signature we send SIGKILL
+    so the parent can move on to the ffmpeg-concat fallback.
+
+    Returns a CompletedProcess-like namespace with .returncode and
+    .killed_by_crash_watch (True iff we sent the kill ourselves).
+    """
+    import time
+
+    # The combine crash is a FileNotFoundError specifically on
+    # partial_movie_file_list.txt.  Earlier we matched only the filename,
+    # but that string can also appear in ordinary INFO log lines (e.g.
+    # progress messages about partial movie writing) — yielding false-positive
+    # SIGKILLs that truncate a perfectly-fine render mid-scene.  Require both
+    # the exception name AND the filename, on the same line, near the end of
+    # the log, so we only trip on the actual exception.
+    crash_re = re.compile(
+        r"FileNotFoundError.*partial_movie_file_list\.txt", re.DOTALL,
+    )
+    # Idle timeout: how long Manim can sit with no log activity after we've
+    # already seen the crash before we conclude the process is wedged.
+    idle_after_crash = 15.0
+
+    with open(log_path, "w", encoding="utf-8") as logf:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            cwd=str(Path.cwd()),
+        )
+
+    start = time.time()
+    crash_detected_at: float | None = None
+    last_log_size = 0
+    last_log_change = time.time()
+    killed_by_crash_watch = False
+
+    try:
+        while True:
+            rc = proc.poll()
+            if rc is not None:
+                break
+
+            now = time.time()
+            if now - start > timeout:
+                logger.error("Manim exceeded timeout (%ds); killing.", timeout)
+                proc.kill()
+                proc.wait()
+                break
+
+            try:
+                size = log_path.stat().st_size
+            except FileNotFoundError:
+                size = 0
+            if size != last_log_size:
+                last_log_size = size
+                last_log_change = now
+
+            if crash_detected_at is None:
+                # Cheap pre-check before reading the file.
+                if size > 0 and (now - last_log_change) < poll_interval * 3:
+                    try:
+                        # Read only the last 16 KB so an INFO message that
+                        # mentions the path but isn't the actual crash can't
+                        # poison the watcher for the rest of the run.
+                        with open(log_path, "rb") as f:
+                            f.seek(0, 2)
+                            tail_pos = max(0, f.tell() - 16 * 1024)
+                            f.seek(tail_pos)
+                            tail_bytes = f.read()
+                        text = tail_bytes.decode("utf-8", errors="replace")
+                        if crash_re.search(text):
+                            crash_detected_at = now
+                            logger.warning(
+                                "Detected Manim combine crash in %s; will kill if "
+                                "subprocess does not exit within %.0fs.",
+                                log_path, idle_after_crash,
+                            )
+                    except Exception:
+                        pass
+            else:
+                # Crash signature seen — give Manim a brief grace period to
+                # exit on its own, then kill if it's still alive.
+                if (
+                    now - crash_detected_at >= idle_after_crash
+                    or now - last_log_change >= idle_after_crash
+                ):
+                    logger.warning(
+                        "Manim is wedged in shutdown after combine crash; "
+                        "sending SIGKILL so the engine can fall back to "
+                        "ffmpeg concat.",
+                    )
+                    proc.kill()
+                    proc.wait(timeout=10)
+                    killed_by_crash_watch = True
+                    break
+
+            time.sleep(poll_interval)
+    except KeyboardInterrupt:
+        proc.kill()
+        proc.wait()
+        raise
+
+    class _Result:
+        pass
+
+    result = _Result()
+    result.returncode = proc.returncode
+    result.killed_by_crash_watch = killed_by_crash_watch
+    return result
+
+
+def _verify_concat_matches_manifest(video: Path, manifest_path: Path) -> None:
+    """Reconcile the concat'd silent video with the timing manifest.
+
+    Manim advances ``scene.renderer.time`` by REQUESTED ``run_time``/``wait``
+    arguments, but actually-rendered frames get quantized to FPS boundaries —
+    a ``run_time=0.45s`` call at 30 fps becomes 13 frames = 0.433s.  Across
+    ~230 ``play()``/``wait()`` calls that ~0.02s per-call rounding loss adds
+    up to 4–5 seconds.  ``renderer.time`` (and thus our manifest) reports
+    235.13s but the actual silent mp4 is 230.47s.
+
+    Re-encoding doesn't help — frames that were never written can't be
+    recovered.  Instead, STRETCH the silent video's timestamps so its
+    duration equals ``manifest.total_video_duration``.  Same frame count,
+    each frame held very slightly longer on the playback clock — viewer
+    sees ~2% time dilation, totally imperceptible.  Audio mux can then place
+    every per-scene narration at its ORIGINAL ``video_start_seconds`` and
+    every cue lands on the correct frame.  No more rescale / no more
+    accumulating drift.
+    """
+    if not manifest_path.is_file():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_total = float(manifest.get("total_video_duration", 0.0))
+    except Exception as e:
+        logger.debug("Could not read manifest for verification: %s", e)
+        return
+    if manifest_total <= 0:
+        return
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error",
+             "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1",
+             str(video)],
+            capture_output=True, text=True, timeout=20,
+        )
+        actual = float(result.stdout.strip())
+    except Exception as e:
+        logger.debug("Could not probe concat'd video: %s", e)
+        return
+
+    delta = abs(manifest_total - actual)
+    if delta <= 0.2:
+        logger.info(
+            "Concat duration matches manifest within %.2fs (manifest=%.2fs, "
+            "video=%.2fs)",
+            delta, manifest_total, actual,
+        )
+        return
+
+    if actual >= manifest_total:
+        # Video is LONGER than manifest claimed (rare).  Trust the manifest;
+        # ffmpeg's -t flag in the next encode would clip it.  For now just
+        # warn and let it ride.
+        logger.warning(
+            "Concat'd video (%.2fs) is LONGER than manifest claimed (%.2fs); "
+            "leaving manifest alone — audio mux will pad to manifest length.",
+            actual, manifest_total,
+        )
+        return
+
+    pts_factor = manifest_total / actual
+    logger.warning(
+        "AV-SYNC TIME-DILATE: concat'd video is %.2fs but manifest claims "
+        "%.2fs (delta %.2fs).  Stretching playback timestamps by %.4fx so "
+        "the silent video lasts exactly the duration the renderer tracked.  "
+        "Same frames, each held ~%.1f%% longer on screen.",
+        actual, manifest_total, delta, pts_factor, (pts_factor - 1) * 100,
+    )
+
+    stretched = video.with_suffix(".stretched.mp4")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video),
+        "-vf", f"setpts={pts_factor:.6f}*PTS",
+        "-r", "30",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-an",
+        str(stretched),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    if proc.returncode != 0:
+        logger.error(
+            "setpts time-dilation failed; leaving silent video at original "
+            "duration (audio will drift):\n%s",
+            (proc.stderr or "")[-2000:],
+        )
+        return
+    try:
+        video.unlink(missing_ok=True)
+        stretched.rename(video)
+    except Exception as e:
+        logger.error("Could not swap stretched video into place: %s", e)
+        return
+
+    # Confirm.
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error",
+             "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1",
+             str(video)],
+            capture_output=True, text=True, timeout=20,
+        )
+        new_actual = float(result.stdout.strip())
+        logger.info(
+            "Time-dilate complete: video is now %.2fs (manifest %.2fs, delta %.2fs)",
+            new_actual, manifest_total, abs(manifest_total - new_actual),
+        )
+    except Exception:
+        pass
+
+
+def _mp4_is_valid(path: Path) -> bool:
+    """Return True iff ffprobe can parse the file's container.
+
+    Manim's broken combine_files step leaves a half-written
+    FullSemanticVideo.mp4 (no moov atom) on disk before crashing.  Without
+    this check the engine would happily pick that corpse up as the final
+    rendered output and the audio-mux step would die with
+    ``moov atom not found``.
+    """
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-i", str(path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _ffmpeg_concat(partials: list[Path], output: Path) -> bool:
+    """Concatenate Manim's per-animation mp4s into one file via ffmpeg.
+
+    Returns True on success, False on failure.  Used as a fallback when
+    Manim's own ``combine_files`` step crashes on certain PyAV/Python
+    combinations after every animation has rendered successfully.
+
+    We RE-ENCODE the video stream rather than using ``-c copy``.  Empirically,
+    ``-c copy`` across many Manim partials silently shaves a frame or two at
+    every concat boundary — across 232 partials that's ~4.8s of missing time
+    per long-form render.  The loss is non-uniform (accumulates with each
+    boundary crossed) so midway through the video, audio drifts ahead of
+    visuals by 1–2 seconds and entire subtitle sentences can land on the
+    wrong scene.  Re-encoding with libx264 fixes timestamps at every join,
+    matching what Manim's own combine_files would have produced.  Costs
+    ~30–60s extra wall time on a 4-minute video.  Worth it.
+    """
+    if not partials:
+        return False
+    list_fd, list_path = tempfile.mkstemp(suffix=".txt", prefix="concat_")
+    try:
+        with os.fdopen(list_fd, "w", encoding="utf-8") as listf:
+            for p in partials:
+                safe = str(p).replace("'", "'\\''")
+                listf.write(f"file '{safe}'\n")
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_path,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(output),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if result.returncode != 0:
+            logger.error("ffmpeg concat (re-encode) failed:\n%s", result.stderr[-4000:])
+            return False
+        logger.info("ffmpeg concat (re-encode) wrote %s (%d bytes)",
+                    output, output.stat().st_size if output.exists() else 0)
+        return output.exists()
+    finally:
+        Path(list_path).unlink(missing_ok=True)
 
 # Actions that produce full-screen "slide" content — only one should be
 # visible at a time.  Before rendering a new presentation action the engine
@@ -736,46 +1063,106 @@ def render_full_semantic_video(
         RUNNER_CLASS,
     ]
 
+    # Stream Manim's stdout/stderr to a log file rather than capturing in
+    # memory (capture_output=True deadlocks on WSL when pipe buffers fill
+    # faster than the parent drains them) AND watch that log for Manim's
+    # combine-step crash signature so we can SIGKILL the wedged subprocess
+    # without the user having to do it by hand.
+    log_path = work_dir / "manim_render.log"
     logger.info("Full semantic render: %s", " ".join(cmd))
+    logger.info("Manim stdout/stderr: %s (tail -f to watch)", log_path)
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            cwd=str(Path.cwd()),
-        )
+        # 2-hour render cap.  WSL-backed renders of full long-form videos
+        # routinely take 50–80 minutes on lower-spec laptops; the previous
+        # 60-minute cap was tripping a SIGKILL right before construct()
+        # finished, leaving the manifest at scene 8 of 16.
+        result = _run_manim_with_crash_watch(cmd, log_path, env=env, timeout=7200)
     finally:
         Path(json_path).unlink(missing_ok=True)
 
-    if result.returncode != 0:
-        err = (result.stderr or "") + (result.stdout or "")
-        logger.error("Full semantic render failed:\n%s", err[-6000:])
-        return None
-
+    # Look for the final mp4 Manim should have produced.  Validate it —
+    # Manim's broken combine_files leaves a moov-less corpse on disk that
+    # we must not mistake for the real output.
+    rendered: Path | None = None
     for mp4 in media_dir.rglob(f"{RUNNER_CLASS}.mp4"):
-        if "partial_movie_files" not in str(mp4):
+        if "partial_movie_files" in str(mp4):
+            continue
+        if _mp4_is_valid(mp4):
             rendered = mp4
             break
-    else:
-        logger.error("Render finished but %s.mp4 not found under %s", RUNNER_CLASS, media_dir)
+        logger.warning("Ignoring corrupt %s (probably from a Manim combine crash)", mp4)
+        try:
+            mp4.unlink()
+        except Exception:
+            pass
+
+    # Fallback: Manim's `combine_files` step crashes on certain
+    # PyAV/Python combos (FileNotFoundError on partial_movie_file_list.txt)
+    # AFTER all per-animation partials have been rendered successfully.
+    # When that happens, concat the partials ourselves with ffmpeg so the
+    # render is recoverable without manual intervention.
+    if rendered is None:
+        partial_dir = (
+            media_dir / "videos" / "full_video_runner"
+            / f"{MANIM_QUALITY_DIR_MAP.get(MANIM_QUALITY, '720p30')}"
+            / "partial_movie_files" / RUNNER_CLASS
+        )
+        # Glob ALL .mp4 partials, not just uncached_*.  Manim writes
+        # cached/hash-named files for some animations even with
+        # --disable_caching (notably intro/title/outro cards), and missing
+        # them causes the concat'd video to be shorter than the manifest
+        # claims, which makes every downstream audio cue land on the
+        # wrong frame.  Order by mtime — partials are write-once and in
+        # render order, so mtime is a reliable index.
+        partials = sorted(
+            (p for p in partial_dir.glob("*.mp4") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+        ) if partial_dir.is_dir() else []
+
+        if partials:
+            logger.warning(
+                "Manim's combine step did not produce %s.mp4 but %d partials "
+                "are present — running ffmpeg concat fallback.",
+                RUNNER_CLASS, len(partials),
+            )
+            rendered = partial_dir.parent / f"{RUNNER_CLASS}.mp4"
+            if not _ffmpeg_concat(partials, rendered):
+                rendered = None
+            else:
+                _verify_concat_matches_manifest(rendered, manifest_path)
+
+    if rendered is None:
+        if result.returncode != 0:
+            try:
+                tail = log_path.read_text(encoding="utf-8", errors="replace")[-6000:]
+            except Exception:
+                tail = "<failed to read manim log>"
+            logger.error("Full semantic render failed:\n%s", tail)
+        else:
+            logger.error(
+                "Render finished but %s.mp4 not found under %s and no "
+                "partials available for fallback concat.",
+                RUNNER_CLASS, media_dir,
+            )
         return None
 
     out = dest_dir / "full_semantic_silent.mp4"
     out.unlink(missing_ok=True)
-    shutil.move(str(rendered), str(out))
+    # shutil.move falls back to copy2 across devices (/tmp -> /mnt/c) and
+    # copy2 tries to mirror Linux timestamps, which Windows refuses.  Use
+    # copyfile + unlink to dodge the chmod/utime traps.
+    shutil.copyfile(str(rendered), str(out))
+    Path(rendered).unlink(missing_ok=True)
     logger.info("Silent full video: %s", out)
 
     # Copy the timing manifest next to the silent video so the audio mux
     # can rebuild narration with per-scene boundaries that match the
     # actual rendered timeline (eliminates accumulated AV drift).
+    # copyfile (not copy) — copy() tries chmod which fails on /mnt/c.
     if manifest_path.exists():
         try:
-            shutil.copy(str(manifest_path), str(dest_dir / "scene_timings.json"))
+            shutil.copyfile(str(manifest_path), str(dest_dir / "scene_timings.json"))
             logger.info("Scene timing manifest: %s", dest_dir / "scene_timings.json")
         except Exception as e:
             logger.warning("Could not copy scene timing manifest: %s", e)
@@ -849,74 +1236,100 @@ def render_shorts_video(
         SHORTS_RUNNER_CLASS,
     ]
 
+    # See render_full_semantic_video — log to file and watch for the
+    # combine-step crash so we can self-kill a wedged Manim.
+    log_path = dest_dir / "manim_render.log"
+    dest_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Shorts render: %s", " ".join(cmd))
+    logger.info("Shorts subprocess log: %s (tail -f to watch)", log_path)
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=1800,  # shorts shouldn't take long; tighter cap than long-form
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            cwd=str(Path.cwd()),
-        )
+        result = _run_manim_with_crash_watch(cmd, log_path, env=env, timeout=1800)
     finally:
         Path(json_path).unlink(missing_ok=True)
 
-    # Always write the subprocess output to a debug log next to the silent
-    # video.  Lets us inspect warnings/diagnostics from inside the Manim
-    # subprocess (e.g. _add_shorts_scene_glow's panel diagnostics) since
-    # capture_output=True traps them.  Critical render-time issues like
-    # "panel function never executed" only show up here.
+    # Surface any "Shorts panel:" diagnostic warnings from the log to the
+    # parent so they appear in the user's console without hunting.
     try:
-        debug_log = dest_dir / "manim_render.log"
-        debug_log.parent.mkdir(parents=True, exist_ok=True)
-        full_out = "\n".join([
-            "=== STDOUT ===",
-            result.stdout or "(empty)",
-            "",
-            "=== STDERR ===",
-            result.stderr or "(empty)",
-        ])
-        debug_log.write_text(full_out, encoding="utf-8")
-        logger.info("Shorts subprocess log: %s", debug_log)
-    except Exception as e:
-        logger.debug("Could not write shorts subprocess log: %s", e)
-
-    if result.returncode != 0:
-        err = (result.stderr or "") + (result.stdout or "")
-        logger.error("Shorts render failed:\n%s", err[-6000:])
-        return None
-
-    # Also surface any "Shorts panel:" diagnostic warnings to the parent
-    # logger so they appear in the user's console without hunting through
-    # the manim_render.log file.
-    if result.stderr:
-        for line in result.stderr.splitlines():
+        for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
             if "Shorts panel" in line or "Shorts glow" in line:
                 logger.warning("[manim subprocess] %s", line.strip())
+    except Exception:
+        pass
 
+    # Look for the final mp4 Manim should have produced.  Validate it —
+    # see render_full_semantic_video for why corrupt mp4s show up.
+    rendered: Path | None = None
     for mp4 in media_dir.rglob(f"{SHORTS_RUNNER_CLASS}.mp4"):
-        if "partial_movie_files" not in str(mp4):
+        if "partial_movie_files" in str(mp4):
+            continue
+        if _mp4_is_valid(mp4):
             rendered = mp4
             break
-    else:
-        logger.error(
-            "Shorts render finished but %s.mp4 not found under %s",
-            SHORTS_RUNNER_CLASS, media_dir,
-        )
+        logger.warning("Ignoring corrupt %s (probably from a Manim combine crash)", mp4)
+        try:
+            mp4.unlink()
+        except Exception:
+            pass
+
+    # Fallback: same PyAV/combine_files crash as the long-form pipeline.
+    # Find the partial_movie_files dir via rglob (since the quality dir
+    # name varies with the resolution flag) and concat with ffmpeg.
+    if rendered is None:
+        partial_dirs = [
+            d for d in media_dir.rglob("partial_movie_files")
+            if d.is_dir() and (d / SHORTS_RUNNER_CLASS).is_dir()
+        ]
+        partials: list[Path] = []
+        scene_dir: Path | None = None
+        if partial_dirs:
+            scene_dir = partial_dirs[0] / SHORTS_RUNNER_CLASS
+            # Glob all .mp4 partials (cached + uncached) ordered by mtime
+            # — see render_full_semantic_video for why uncached_* alone
+            # is not enough.
+            partials = sorted(
+                (p for p in scene_dir.glob("*.mp4") if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+            )
+
+        if partials and scene_dir is not None:
+            logger.warning(
+                "Manim's combine step did not produce %s.mp4 but %d partials "
+                "are present — running ffmpeg concat fallback.",
+                SHORTS_RUNNER_CLASS, len(partials),
+            )
+            rendered = scene_dir.parent.parent / f"{SHORTS_RUNNER_CLASS}.mp4"
+            if not _ffmpeg_concat(partials, rendered):
+                rendered = None
+            else:
+                _verify_concat_matches_manifest(rendered, manifest_path)
+
+    if rendered is None:
+        if result.returncode != 0:
+            try:
+                tail = log_path.read_text(encoding="utf-8", errors="replace")[-6000:]
+            except Exception:
+                tail = "<failed to read manim log>"
+            logger.error("Shorts render failed:\n%s", tail)
+        else:
+            logger.error(
+                "Shorts render finished but %s.mp4 not found under %s and no "
+                "partials available for fallback concat.",
+                SHORTS_RUNNER_CLASS, media_dir,
+            )
         return None
 
     out = dest_dir / "shorts_silent.mp4"
     out.unlink(missing_ok=True)
-    shutil.move(str(rendered), str(out))
+    # See render_full_semantic_video — shutil.move dies on /tmp -> /mnt/c.
+    shutil.copyfile(str(rendered), str(out))
+    Path(rendered).unlink(missing_ok=True)
     logger.info("Silent vertical short: %s", out)
 
+    # copyfile (not copy) — copy() tries chmod which fails on /mnt/c.
     if manifest_path.exists():
         try:
-            shutil.copy(str(manifest_path), str(dest_dir / "scene_timings.json"))
+            shutil.copyfile(str(manifest_path), str(dest_dir / "scene_timings.json"))
             logger.info("Shorts timing manifest: %s", dest_dir / "scene_timings.json")
         except Exception as e:
             logger.warning("Could not copy shorts timing manifest: %s", e)

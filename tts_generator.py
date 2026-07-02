@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output/audio")
 
-PACE_TO_SPEED = {"slow": 0.92, "normal": 1.0, "fast": 1.05}
+# OpenAI TTS at speed=1.0 with `alloy` natural-paces around 170 WPM, which is
+# auctioneer-fast for pedagogical content (target ~135 WPM).  Pull every pace
+# down so educational narration is tracked rather than rushed.  speed is part
+# of the cache key, so existing cached audios silently invalidate — first run
+# after this change pays for fresh TTS, subsequent runs hit the new cache.
+PACE_TO_SPEED = {"slow": 0.78, "normal": 0.85, "fast": 0.95}
 
 
 def speed_for_pace(pace: str | None) -> float:
