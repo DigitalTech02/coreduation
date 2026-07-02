@@ -7,7 +7,7 @@ AI-driven educational video pipeline. An LLM emits a structured action JSON; a d
 | Engine | Flow | Status |
 |---|---|---|
 | `--engine legacy` | LLM → raw Manim code → `error_healer` → per-scene render → `video_stitcher` | Maintained but not the focus |
-| `--engine semantic` | LLM → action JSON → `semantic_repair` → `semantic_validation` → TTS → whisper-align → render silent video → manifest-aligned audio mux → frame validator → auto-fix → vision QA → final mux → thumbnail → YouTube export → dubs → YouTube upload | **Active** (`semantic-engine-v9`) |
+| `--engine semantic` | LLM → action JSON → `semantic_repair` → `semantic_validation` → TTS → whisper-align → render silent video → manifest-aligned audio mux → frame validator → auto-fix → vision QA → final mux → thumbnail → YouTube export → dubs → YouTube upload | **Active** (`semantic-engine-v10`) |
 | `--shorts` / `--shorts-only` | Same long-form pipeline (when not `-only`), then: `shorts_orchestrator` distills topic → 4-scene viral script → TTS → whisper-align → vertical 1080×1920 render → manifest-aligned audio → mux → platform-named copies | Active alongside long-form |
 
 Run:
@@ -162,8 +162,9 @@ Run: `pytest tests/ -q` — 158 tests, all passing as of Track 7.
 
 ## Active branch
 
-`semantic-engine-v9`. Track history (most recent first):
+`semantic-engine-v10`, branched from `master` after `semantic-engine-v9` merged in (PR #1). Track history (most recent first):
 
+- **Track 8 — WSL/Linux long-form rendering resilience**. Crash-watching Manim runner that detects the PyAV/Python 3.12 `combine_files` wedge (log-tails for the crash signature, SIGKILLs on timeout) and falls back to an ffmpeg concat of partial mp4s; manifest/video duration reconciliation via PTS stretch to close the ~4-5s drift from FPS-quantized frame counts; `concat_partials.py`/`salvage_run.py` recovery scripts for runs killed mid-render; `linux.md` WSL setup guide. Also landed in the same commit: narration pace tuned down (OpenAI `alloy` reads ~170 WPM, too fast for teaching), packet-travel duration floor/ceiling, callout leader-line geometry fix.
 - **Track 7 — Shorts pipeline** (vertical 9:16 for YT Shorts / IG Reels / TikTok). New `--shorts` and `--shorts-only` CLI flags. Reuses Tracks 5/6 infrastructure; only the prompt + camera frame differ.
 - **Track 6 — Manifest-driven AV alignment**. The renderer writes `scene_timings.json`; audio mux places each scene's TTS at its actual `video_start_seconds`. Eliminates the chronic ~17s drift that accumulated when action animations overshot their declared budget. See `feedback_av_sync_drift.md` in memory for the diagnosis and why "tuning" doesn't fix it.
 - **Track 5 — Whisper-aligned subtitles + ambient visuals + YouTube bridge + selective music**. Per-scene word timestamps drive scheduled subtitle mobjects with time-based opacity updaters; drifting particle field, margin decor, isometric shadows; pipeline output auto-copied to `Youtube_Upload/videos/`; OAuth dual-path search; music narrowed to `tense`-mood scenes plus intro/outro stings at -36 dB.
