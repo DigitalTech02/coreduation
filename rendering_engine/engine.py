@@ -118,11 +118,19 @@ def _run_manim_with_crash_watch(
     # but that string can also appear in ordinary INFO log lines (e.g.
     # progress messages about partial movie writing) — yielding false-positive
     # SIGKILLs that truncate a perfectly-fine render mid-scene.  Require both
-    # the exception name AND the filename, on the same line, near the end of
-    # the log, so we only trip on the actual exception.
-    crash_re = re.compile(
-        r"FileNotFoundError.*partial_movie_file_list\.txt", re.DOTALL,
-    )
+    # the exception name AND the filename near the end of the log, so we only
+    # trip on the actual exception.
+    #
+    # Can't just regex "FileNotFoundError.*partial_movie_file_list\.txt" —
+    # Manim/Rich hard-wraps its traceback panel at the terminal column width,
+    # which can split the filename itself across a line break (observed:
+    # "...partial_m" / newline / "ovie_file_list.txt").  DOTALL still can't
+    # match a literal substring that has a newline injected in the middle of
+    # it.  Strip all whitespace before checking so wrapping can't hide the
+    # signature.
+    def _has_crash_signature(text: str) -> bool:
+        normalized = re.sub(r"\s+", "", text)
+        return "FileNotFoundError" in normalized and "partial_movie_file_list.txt" in normalized
     # Idle timeout: how long Manim can sit with no log activity after we've
     # already seen the crash before we conclude the process is wedged.
     idle_after_crash = 15.0
@@ -177,7 +185,7 @@ def _run_manim_with_crash_watch(
                             f.seek(tail_pos)
                             tail_bytes = f.read()
                         text = tail_bytes.decode("utf-8", errors="replace")
-                        if crash_re.search(text):
+                        if _has_crash_signature(text):
                             crash_detected_at = now
                             logger.warning(
                                 "Detected Manim combine crash in %s; will kill if "
